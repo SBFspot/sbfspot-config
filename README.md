@@ -13,7 +13,7 @@ This tool needs to run as root. Depending on the chosen options, it installs sof
 
 ### Navigation
 sbfspot-config uses [whiptail](https://en.wikibooks.org/wiki/Bash_Shell_Scripting/Whiptail) for the dialog boxes. You might be already familiar with it by using raspi-config (Yes, I took a close look at this one)
-Anyway, to navigate in the menus, these keys are important: <ENTER>, <SPACEBAR>, <TAB>, <ESC> and <UP/DOWN ARROWS>
+Anyway, to navigate in the menus, these keys are important: [ENTER], [SPACEBAR], [TAB], [ESC] and [UP/DOWN ARROWS]
   
 ### Configure SBFspot
 When you enter the above command, the latest version of sbfspot-config is downloaded and executed as root.
