@@ -27,11 +27,26 @@ Remember: it's always a good idea to take a backup of an existing database (SBFs
 ![0](https://user-images.githubusercontent.com/1931158/46150551-1ab39280-c26d-11e8-8f48-f5c4dc2834ca.JPG)
 
 ### Main menu
-
 ![0-main](https://user-images.githubusercontent.com/1931158/46151414-053f6800-c26f-11e8-8369-ce1c6a81a694.JPG)
 
 Depending on the connection of your inverter, select "Connection Type => Bluetooth" or "Connection Type => Speedwire"
 
+![2-connectiontype](https://user-images.githubusercontent.com/1931158/46155144-ea70f180-c276-11e8-88cc-a308500a7d6c.JPG)
+
+### Bluetooth
+Selecting Bluetooth launches `hcitool scan` to get the list of SMA devices. This takes some time to complete.
+
+![2-bluetooth](https://user-images.githubusercontent.com/1931158/46155238-2310cb00-c277-11e8-88a2-e23d2ac0fb40.jpg)
+
+### Speedwire
+Enter 1 or more fixed IP addresses.
+
+### Database
+Select a database you want to use. If you don't have already MySQL or MariaDB server running, SQLite is your best option.
+This howto doesn't cover MySQL/MariaDB server setup. If you don't need a database, you can select NoSQL
+
+### PVoutput
+This section requires a [PVoutput](https://pvoutput.org) account and an enabled API key.
 
 
 # To be continued...
