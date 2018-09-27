@@ -26,7 +26,7 @@ Remember: it's always a good idea to take a backup of an existing database (SBFs
 
 ![0](https://user-images.githubusercontent.com/1931158/46150551-1ab39280-c26d-11e8-8f48-f5c4dc2834ca.JPG)
 
-You enter the main menu now:
+### Main menu
 
 ![0-main](https://user-images.githubusercontent.com/1931158/46151414-053f6800-c26f-11e8-8369-ce1c6a81a694.JPG)
 
