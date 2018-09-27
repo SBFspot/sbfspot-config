@@ -1,7 +1,6 @@
 #!/bin/bash
 # shellcheck disable=SC1090,SC1117,SC2034,SC2164
 #
-#
 #             _      __                 _                         __ _       
 #         ___| |__  / _|___ _ __   ___ | |_       ___ ___  _ __  / _(_) __ _ 
 #        / __| '_ \| |_/ __| '_ \ / _ \| __|____ / __/ _ \| '_ \| |_| |/ _` |
@@ -10,17 +9,23 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.0.0
+# sbfspot-config V1.0.7
 # (c) 2017-2018, SBF
 # This tool provides a straight-forward way of doing complete installation
-# and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi.
+# and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian)
 #
-# The latest version of this tool can be found at https://github.com/SBFspot/sbfspot-config
+# The latest version of this tool can be found at https://github.com/sbfspot/sbfspot-config
 #
+# Download/run sbfspot-config as root:
+# To install the latest SBFspot version:
+# curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash
+#
+# To install a specific SBFspot version (e.g. 3.5.0):
+# curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
 
-readonly toolversion="1.0.0"
-
+readonly toolversion="1.0.7"
 readonly appname="SBFspot Configuration Tool V$toolversion"
+readonly minimum_sbfspot_version="3.5.0"
 
 # default SBFspot parameters used in cron jobs
 readonly p_daydata="-v -ad1 -am0 -ae0"
@@ -30,18 +35,24 @@ readonly p_monthdata="-v -sp0 -ad0 -am1 -ae1 -finq"
 readonly t_daydata="*/5 6-22 * * *"	# Every 5 mins from 06:00:00 - 22:59:59
 readonly t_monthdata="55 05 * * *"	# Run once a day at 05:55:00
 
-# some whiptail constants
-readonly wt_yes=0
-readonly wt_no=1
-readonly wt_esc=255
-
 readonly logpath="/var/log/sbfspot.3"
 readonly tmppath="/var/tmp/sbfspot.3"
 readonly prgpath="/usr/local/bin/sbfspot.3"
 readonly cfgpath="/usr/local/bin/sbfspot.3"
 readonly defaultsfile="$tmppath/sbfspot.defaults"
 
-readonly latest="https://github.com/sbf-/githubtest/releases/download/latest"
+# No ending "/"
+readonly url_mylocation="https://raw.githubusercontent.com/sbfspot/sbfspot-config/master"
+readonly url_releases="https://github.com/sbfspot/sbfspot/releases"
+
+# some whiptail constants
+readonly wt_yes=0
+readonly wt_no=1
+readonly wt_esc=255
+
+# Captions for config selection - used in search_config() and read_variables()
+readonly cfg_new="Create new config"
+readonly cfg_saved="Use last saved settings"
 
 create_defaults()
 {
@@ -72,8 +83,9 @@ create_defaults()
 	CSV_Spot_WebboxHeader="0"
 	
 	Timezone="$(</etc/timezone)"
-	wget -o"$tmppath/wget.txt" -N -P"$tmppath" "$latest/tzlatlon"
-	local latlon=($(grep "$Timezone" "$tmppath/tzlatlon"))
+	wget -o"$tmp_dir/wget.txt" -NP "$tmppath" "$url_mylocation/tzlatlon"
+	local latlon
+	read -r -a latlon <<< "$(grep "$Timezone" "$tmppath/tzlatlon")"
 	Latitude=${latlon[1]}
 	Longitude=${latlon[2]}
 	Locale="en-US"
@@ -205,26 +217,28 @@ save_defaults()
 
 search_config()
 {
-	local cfg
-	cfg=$(find / -name SBFspot.cfg 2>/dev/null)
-	if [ -z "$cfg" ]; then
-		return 1 # No config found
+	local options
+	local cfglist=$(find / -name SBFspot.cfg 2>/dev/null)
+	if [ ! -z "$cfglist" ]; then
+		options=$(echo "$cfglist" | \
+		while read line; do
+			printf '%s\t \toff\n' "$line"
+		done)
 	fi
 
-	cfglist=$(echo "$cfg" | \
-	while read line; do
-		printf '%s\t \toff\n' "$line"
-	done)
-
-	cfglist=$'<<< Create New Config >>>\t \ton\n'$cfglist
-
+	if [ -f "$defaultsfile" ]; then
+		options="$cfg_saved"$'\t \ton\n'"$cfg_new"$'\t \toff\n'"$options"
+	else
+		options="$cfg_new"$'\t \ton\n'"$options"
+	fi
+	
 	IFS=$'\t\n'
 	local rc
 	local opt
 	
 	opt=$(whiptail --radiolist  \
 		--title "Select configuration" \
-		"Select an existing configuration or create a new one\n\nUse <SPACE> to make a selection, <ESC> to cancel" 0 0 0 ${cfglist} 3>&1 1>&2 2>&3)
+		"Select an existing configuration or create a new one\n\nUse <SPACE> to make a selection, <ESC> to cancel" 0 0 0 ${options} 3>&1 1>&2 2>&3)
 	
 	rc=$?
 	if [ "$rc" -eq 0 ]; then # OK
@@ -238,40 +252,157 @@ read_variables()
 {
 	local rc=0
 	
-	echo "Reading variables..."
-	if [ -f "$defaultsfile" ]; then
-		read_defaults
-	else
-		create_defaults
-	fi
-	
 	echo "Searching for existing configuration(s)..."
 	local cfg
 	cfg=$(search_config)
 	rc=$?
 	
-	if [ "$rc" -eq 0 ]; then
-		if [ -f "$cfg" ]; then
-			local tempcfg="$tmppath/SBFspot.cfg.tmp"
-			grep -P -o "^[aA-zZ_]*=[aA-zZ0-9/%.:-]*" "$cfg">"$tempcfg"
-			echo "Reading settings from $cfg"
+	if [ "$rc" -ne 0 ]; then
+		return $rc # ESC or Cancel
+	fi
+	
+	if [ "$cfg" = "$cfg_new" ]; then
+		echo "Creating new config..."
+		create_defaults
+	elif  [ "$cfg" = "$cfg_saved" ]; then
+		read_defaults
+	else
+		create_defaults
+		
+		# Reset SQL_Database in case .cfg is configured for NoSQL
+		SQL_Database=""
+		
+		# Read .cfg files
+		local tempcfg="$tmppath/cfg.tmp"
+		grep -Po "^[aA-zZ_]*=[aA-zZ0-9/%.:-]*" "$cfg">"$tempcfg"
+		echo "Reading settings from $cfg"
+		source "$tempcfg"
+		local cfg2
+		cfg2="$(dirname "$cfg")/SBFspotUpload.cfg"
+		if [ -f "$cfg2" ]; then
+			#grep -Po "^PVoutput_(SID|Key)=[aA-zZ0-9:,]*" "$cfg2">"$tempcfg"
+			grep -Po "^[aA-zZ_]*=[aA-zZ0-9/%.:-]*" "$cfg2">"$tempcfg"
+			echo "Reading settings from $cfg2"
 			source "$tempcfg"
-			rm "$tempcfg"
-			local cfg2
-			cfg2="$(dirname "$cfg")/SBFspotUpload.cfg"
-			if [ -f "$cfg2" ]; then
-				grep -P -o "^PVoutput_(SID|Key)=[aA-zZ0-9:,]*" "$cfg2">"$tempcfg"
-				echo "Reading settings from $cfg2"
-				source "$tempcfg"
-				rm "$tempcfg"
-			fi
-			DateTimeFormat="$DateFormat $TimeFormat"
+		fi
+		DateTimeFormat="$DateFormat $TimeFormat"
+		rm "$tempcfg"
+
+		dir_smadata="$userhome/smadata"
+		dir_config="$(dirname "$cfg")"
+
+		if [ ! -z ${LogDir+x} ]; then
+			dir_logs="$LogDir"
+		fi
+
+		if [ -z ${inv_connectiontype+x} ] || [ "$BTAddress" != "00:00:00:00:00:00" ]; then
+			inv_connectiontype="Bluetooth"
+			inv_address="$BTAddress"
 		else
-			echo "Creating new config..."
+			inv_connectiontype="Speedwire"
+			inv_address="$IP_Address"
+		fi
+		
+		if [ -z "$SQL_Database" ]; then
+			sql_dbtype="NoSQL"
+		fi
+		
+		if [ "$sql_dbtype" = "NoSQL" ] || [ -z "$PVoutput_Key" ]; then
+			pvo_enabled="0"
+		else
+			pvo_enabled="1"
 		fi
 	fi
 	
 	return 0 # OK
+}
+
+cleanup()
+{
+	rm -f "$tmppath/releases"
+	rm -f "$tmppath/wget.txt"
+	rm -f "$tmppath/tzlatlon"
+	rm -fr "$tmppath/sqlite"
+	rm -fr "$tmppath/mysql"
+	rm -fr "$tmppath/mariadb"
+	rm -fr "$tmppath/nosql"
+	
+	# Remove all other files on successfull installation
+	if [ "$1" = "all" ]; then
+		rm -f "$tmppath/sbfspot.defaults"
+		rmdir "$tmppath" 2>/dev/null
+	fi
+}
+
+# Convert version string (3.4.10) to integer
+# 3*256*256 + 4*246 + 10 = 197642
+vvalue()
+{
+	local ver="$1"	# Version as string
+	
+	local parts=($(echo $ver | tr '.' ' '))
+	local mul=1
+	local value=0
+	for (( p=${#parts[@]}-1; p>=0; p-- )); do
+		value=$((value + mul * ${parts[$p]}))
+		mul=$((mul * 256))
+	done
+	echo $value
+}
+
+# Get the highest release version number
+get_latest_release()
+{
+	local rlist=($(get_releases))
+	local highest_version=""
+	local highest_version_value=0
+
+	for (( i=0; i<${#rlist[@]}; i++ )); do
+		local version=$(echo "${rlist[$i]}"|awk '/$/ { print $1 }' FS='/')
+		local version_value=$(vvalue $version)
+		if [ "$version_value" -gt "$highest_version_value" ]; then
+			highest_version="$version"
+			highest_version_value="$version_value"
+		fi
+	done
+	
+	echo "$highest_version"
+}
+
+# Get a list of available release versions
+get_releases()
+{
+	local arr_releases=()
+	
+	local url="$url_releases"
+	# remove ending "/" if any
+	if [ "${url: -1}" = "/" ]; then
+		url="${url: : -1}"
+	fi
+
+	wget -qNP "$tmppath" "$url"
+	
+	if [ -f "$tmppath/releases" ]; then
+		local rlist=($(grep -Po "(\d+\.)(\d+\.)(\d)/.*\.gz" "$tmppath/releases"))
+		
+		local min_version_value=$(vvalue $minimum_sbfspot_version)
+		
+		for (( i=0; i<${#rlist[@]}; i++ )); do
+			local version=$(echo "${rlist[$i]}"|awk '/$/ { print $1 }' FS='/')
+			local version_value=$(vvalue $version)
+			if [ "$version_value" -ge "$min_version_value" ]; then
+				arr_releases+=("$version")
+			fi
+		done
+		
+		# Sort releases, keeping unique versions only
+		arr_releases=($(printf "%s\n" "${arr_releases[@]}" | sort -u));
+	
+		# Cleanup 
+		rm -f "$tmppath/releases"
+	fi
+	
+	echo "${arr_releases[@]}"
 }
 
 is_pi()
@@ -284,28 +415,37 @@ bt_scan ()
 {
 	local mac=""
 	local rc=0
+	
+	# Limit MAC addresses to SMA Solar Technology AG / STOLLMANN GMBH
+	local sma_mac="00:(15:BB|80:25):"
+	local macfilter="$sma_mac([0-9aA-fF]{2}:){2}[0-9aA-fF]{2}"
+	
 	while [ -z "$mac" ]; do
 		echo Scanning for Bluetooth devices, please wait...
 		IFS=
-		local scanres=$(hcitool scan)
-		#local scanres=$'Scanning...\n\t00:77:1A:2B:00:80\tThis is not an inverter\n'
-		#local scanres=$'Scanning...\n\t00:80:25:15:D3:E7\tBlueCN+001\n\t00:80:1A:2B:3C:4D\tAnother inverter\n\t00:77:1A:2B:00:80\tThis is not an inverter\n'
-		#local scanres=$'Scanning...\n'
-		
+		local scanres
+		scanres=$(hcitool scan)
+		#scanres=$'Scanning...\n\t00:77:1A:2B:00:80\tThis is not an inverter\n'
+		#scanres=$'Scanning...\n\t00:80:25:15:D3:E7\tBlueCN (STOLLMANN)\n\t00:15:BB:2B:3C:4D\tAnother SMA inverter\n\t00:77:1A:2B:00:80\tThis is not an inverter\n'
+		#scanres=$'Scanning...\n'
+
 		local maclist
-		maclist=$(echo "$scanres" | grep -o -P "([0-9aA-fF]{2}:){5}[0-9aA-fF]{2}.*")
+		maclist=$(echo "$scanres" | grep -Po "$macfilter.*")
 		if [ -z "$maclist" ]; then
 			whiptail --yesno "No Bluetooth devices found.\n\nWould you like to repeat the scan?" 0 0
 			rc=$?
-			if [ "$rc" -eq 1 ]; then
+			if [ "$rc" -eq $wt_no ]; then
 				return
+			else
+				# Remove filter - Allow ALL MAC addresses
+				macfilter="([0-9aA-fF]{2}:){5}[0-9aA-fF]{2}"
 			fi
 		else
 			maclist=$(echo "$maclist" | \
 			while read line; do
-				if echo "$line" | grep -q "^00:80"
-					then printf '%s\ton\n' "$line"
-					else printf '%s\toff\n' "$line"
+				if echo "$line" | grep -Pq "^$sma_mac"
+					then printf '%s\ton\n' "$line  "
+					else printf '%s\toff\n' "$line  "
 				fi
 			done)
 
@@ -385,7 +525,7 @@ do_connection_type ()
 				fi
 				
 				# Check for valid IP addresses
-				if echo "$tmp_IP_Address" | grep -q -P "^(((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?),)*(((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))+$"; then
+				if echo "$tmp_IP_Address" | grep -Pq "^(((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?),)*(((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))+$"; then
 					inv_connectiontype="$tmp_inv_connectiontype"
 					IP_Address="$tmp_IP_Address"
 					inv_address="$IP_Address"
@@ -405,74 +545,74 @@ do_db_config()
 	local tmp_SQL_Username="$SQL_Username"
 	local tmp_SQL_Password="$SQL_Password"
 
-	local sqldbtype
+	local db_choice="$sql_dbtype"
 	local rc=0
 	
-	while true; do
-		sqldbtype=$(whiptail --menu --cancel-button "OK" --ok-button "Select" --title "DB Configuration" "Select & Configure SQL DB ($sql_dbtype)" 0 0 0 "SQLite" "" "MySQL" "" "MariaDB" "" "None" "" 3>&1 1>&2 2>&3)
-		
-		rc=$?
-	
-		if [ $rc -eq $wt_esc ]; then # ESC
-			# restore saved settings
-			sql_dbtype="$tmp_sql_dbtype"
-			SQL_Database="$tmp_SQL_Database"
-			SQL_Hostname="$tmp_SQL_Hostname"
-			SQL_Username="$tmp_SQL_Username"
-			SQL_Password="$tmp_SQL_Password"
-			return
-		fi
-	
-		if [ "$rc" -eq 1 ]; then # OK
-			cfg_dirty=1
-			return
-		fi
+	db_choice=$(get_option $'SQLite\tRecommended\nMySQL\tConnect to MySQL/MariaDB server\nMariaDB\tConnect to MySQL/MariaDB server\nNoSQL\tNo database - CSV only' "$db_choice" "Database Configuration")
 
-		if [ "$sqldbtype" = "SQLite" ]; then
-			sql_dbtype="SQLite"
-			SQL_Database="$dir_smadata/SBFspot.db"
-			SQL_Hostname=""
-			SQL_Username=""
-			SQL_Password=""
-			pvo_enabled="1"
-			whiptail --msgbox "SQLite has no configurable options." 0 0
-		fi
+	rc=$?
 
-		if [ "$sqldbtype" = "MySQL" ]; then
-			if [ "$sql_dbtype" != "MySQL" ]; then
-				sql_dbtype="MySQL"
-				SQL_Database="SBFspot"
-				SQL_Hostname="localhost"
-				SQL_Username="SBFspotUser"
-				SQL_Password="SBFspotPassword"
-				pvo_enabled="1"
-			fi
-			do_mysql_config
-		fi
+	if [ $rc -eq $wt_esc ]; then # ESC
+		# restore saved settings
+		sql_dbtype="$tmp_sql_dbtype"
+		SQL_Database="$tmp_SQL_Database"
+		SQL_Hostname="$tmp_SQL_Hostname"
+		SQL_Username="$tmp_SQL_Username"
+		SQL_Password="$tmp_SQL_Password"
+		return
+	fi
 
-		if [ "$sqldbtype" = "MariaDB" ]; then
-			if [ "$sql_dbtype" != "MariaDB" ]; then
-				sql_dbtype="MariaDB"
-				SQL_Database="SBFspot"
-				SQL_Hostname="localhost"
-				SQL_Username="SBFspotUser"
-				SQL_Password="SBFspotPassword"
-				pvo_enabled="1"
-			fi
-			do_mysql_config
-		fi
+	if [ "$rc" -eq 1 ]; then # OK
+		cfg_dirty=1
+		return
+	fi
 
-		if [ "$sqldbtype" = "None" ]; then
-			sql_dbtype="NoSQL"
-			SQL_Database=""
-			SQL_Hostname=""
-			SQL_Username=""
-			SQL_Password=""
-			CSV_Export="1"
-			pvo_enabled="0"
-			whiptail --msgbox "SQL export disabled.\nOutput will be written to CSV files\nUpload to PVOutput disabled" 0 0
+	if [ "$db_choice" = "SQLite" ]; then
+		sql_dbtype="SQLite"
+		SQL_Database="$dir_smadata/SBFspot.db"
+		SQL_Hostname=""
+		SQL_Username=""
+		SQL_Password=""
+		whiptail --msgbox "SQLite has no configurable options." 0 0
+	fi
+
+	if [ "$db_choice" = "MySQL" ]; then
+		if [ "$sql_dbtype" != "MySQL" ]; then
+			sql_dbtype="MySQL"
+			SQL_Database="SBFspot"
+			SQL_Hostname="localhost"
+			SQL_Username="SBFspotUser"
+			SQL_Password="SBFspotPassword"
 		fi
-	done
+		do_mysql_config
+	fi
+
+	if [ "$db_choice" = "MariaDB" ]; then
+		if [ "$sql_dbtype" != "MariaDB" ]; then
+			sql_dbtype="MariaDB"
+			SQL_Database="SBFspot"
+			SQL_Hostname="localhost"
+			SQL_Username="SBFspotUser"
+			SQL_Password="SBFspotPassword"
+		fi
+		do_mysql_config
+	fi
+
+	if [ "$db_choice" = "NoSQL" ]; then
+		sql_dbtype="NoSQL"
+		SQL_Database=""
+		SQL_Hostname=""
+		SQL_Username=""
+		SQL_Password=""
+		CSV_Export="1"
+		whiptail --msgbox "SQL export disabled.\nOutput will be written to CSV files\nUpload to PVOutput disabled" 0 0
+	fi
+
+	if [ "$sql_dbtype" = "NoSQL" ] || [ -z "$PVoutput_Key" ]; then
+		pvo_enabled="0"
+	else
+		pvo_enabled="1"
+	fi
 }
 
 do_mysql_config()
@@ -486,7 +626,7 @@ do_mysql_config()
 	while true; do
 		local opt
 		opt=$(whiptail \
-			--title "MySQL Configuration" \
+			--title "MySQL/MariaDB Configuration" \
 			--menu "" 0 0 0 \
 			--cancel-button "OK" \
 			--ok-button "Select" \
@@ -527,14 +667,15 @@ do_finish()
 			rc=$?
 			if [ "$rc" -eq $wt_yes ]; then
 				save_defaults
+				exit 0
 			fi
 			if [ "$rc" -eq $wt_no ]; then
 				exit 0
 			fi
+			# ESC not allowed - keep going...
 		done
-	else
-		exit 0
 	fi
+	exit 0
 }
 
 do_about()
@@ -551,28 +692,38 @@ do_about()
 # 255 - Fatal error - Terminate
 do_install()
 {
+	local install_release="$1"
 	local sbfspotcfg="SBFspot.cfg"
 	local sbfspotuploadcfg="SBFspotUpload.cfg"
 	local rc=0
-	local lc_dbtype
-	lc_dbtype=$(echo "$sql_dbtype" | tr '[:upper:]' '[:lower:]')
-	
-	if [ "$lc_dbtype" = "mariadb" ]; then
-		lc_dbtype="mysql"
-	fi
-
-	local tmp_dir="$tmppath/$lc_dbtype"
+	local dbtype="${sql_dbtype,,}" # Make lowercase
+	 
+	local tmp_dir="$tmppath/$dbtype"
 	mkdir -p "$tmp_dir"
 	cd "$tmp_dir"
 
-	wget -o"$tmp_dir/wget.txt" -N -P"$tmp_dir" "$latest/sbfspot-$lc_dbtype-arm-linux.tar.gz"
-	tar -xvf "sbfspot-$lc_dbtype-arm-linux.tar.gz">/dev/null
+	local db="$dbtype"
+	if [ "$db" = "mariadb" ]; then
+		db="mysql"
+	fi
+ 	
+	local targz="sbfspot-$db-arm-linux.tar.gz"
+	echo "Downloading $url_releases/download/V$install_release/$targz"
+	wget -o"$tmp_dir/wget.txt" -NP "$tmp_dir" "$url_releases/download/V$install_release/$targz"
+	tar --overwrite -xvf "$targz">/dev/null
+	# Check return code - 0 is OK
+	if [ "$?" -ne 0 ]; then
+		whiptail --msgbox "Unable to untar $targz" 0 0
+		echo "Unable to untar $targz"
+		echo "Installation aborted"
+		return 255
+	fi
 
 	mkdir -p "$dir_smadata"
 	chown "$username:$username" "$dir_smadata"
 	cd "$dir_smadata"
 
-	if [ "$lc_dbtype" = "sqlite" ]; then
+	if [ "$dbtype" = "sqlite" ]; then
 		install_pkg sqlite3
 		
 		if [ -f SBFspot.db ]; then
@@ -582,16 +733,46 @@ do_install()
 			sqlite3 SBFspot.db < "$tmp_dir/CreateSQLiteDB.sql"
 			chown "$username:$username" SBFspot.db
 		fi
+
+		echo "Checking database..."
+		sqlite3 -separator ' ' SBFspot.db "select * from config where key='SchemaVersion'" &>"$tmp_dir/sqldb.test"
+
+		# Check for errors
+		local sql_error=$(grep -i "ERROR: " $tmp_dir/sqldb.test)
+		if [ -n "$sql_error" ]; then
+			whiptail --msgbox "There is a problem:\n$sql_error" 0 0
+			echo "$sql_error"
+			echo "Installation aborted"
+			return 255
+		fi
 	fi
 	
-	if [ "$lc_dbtype" = "mysql" ]; then
-		install_pkg mysql-client
+	if [ "$dbtype" = "mysql" ] || [ "$dbtype" = "mariadb" ]; then
+		install_pkg "$dbtype-client"
+
+		echo "Checking database..."
+		$dbtype -h $SQL_Hostname -u $SQL_Username -p$SQL_Password $SQL_Database -B --disable-column-names -e 'select * from sbfspot.config where `key`="SchemaVersion";' &>"$tmp_dir/sqldb.test"
+
+		# Check for errors
+		local sql_error=$(grep -i "ERROR [^:]*: " $tmp_dir/sqldb.test)
+		if [ -n "$sql_error" ]; then
+			whiptail --msgbox "There is a problem:\n$sql_error" 0 0
+			echo "$sql_error"
+			echo "Installation aborted"
+			return 255
+		fi
 	fi
 
-	if [ "$lc_dbtype" = "mariadb" ]; then
-		install_pkg mariadb-client
+	if [ "$dbtype" = "sqlite" ] || [ "$dbtype" = "mysql" ] || [ "$dbtype" = "mariadb" ]; then
+		# No errors encountered, get schemaversion
+		local sv
+		read -r -a sv <<< $(grep -P "^SchemaVersion\s*\d*" $tmp_dir/sqldb.test)
+		local schemaversion=${sv[1]}
+		
+		# TODO: Validate SchemaVersion
+		echo "Schema Version=$schemaversion"
 	fi
-
+	
 	printf "Copying files...\n"
 
 	mkdir -p "$dir_logs"
@@ -600,11 +781,13 @@ do_install()
 	mkdir -p "$dir_program"
 	cd "$dir_program"
 	cp "$tmp_dir/SBFspot" .
+	chmod 755 SBFspot
+	
 	cp "$tmp_dir/date_time_zonespec.csv" .
-	chmod -x date_time_zonespec.csv
+	chmod 644 date_time_zonespec.csv
 	
 	for file in "$tmp_dir/TagList"*".txt"; do cp "$file" .;done
-	chmod -x TagList*
+	chmod 644 TagList*
 	
 	mkdir -p "$dir_config"
 	cd "$dir_config"
@@ -683,12 +866,12 @@ do_install()
 		echo "CalculateMissingSpotValues=$CalculateMissingSpotValues"
 
 		# Configure SQLite
-		if [ "$lc_dbtype" = "sqlite" ]; then
+		if [ "$dbtype" = "sqlite" ]; then
 			echo "SQL_Database=$SQL_Database"
 		fi
 
 		# Configure MySQL
-		if [ "$lc_dbtype" = "mysql" ]; then
+		if [ "$dbtype" = "mysql" ]; then
 			echo "SQL_Database=$SQL_Database"
 			echo "SQL_Hostname=$SQL_Hostname"
 			echo "SQL_Username=$SQL_Username"
@@ -696,7 +879,7 @@ do_install()
 		fi
 
 		# Configure MariaDB
-		if [ "$lc_dbtype" = "mariadb" ]; then
+		if [ "$dbtype" = "mariadb" ]; then
 			echo "SQL_Database=$SQL_Database"
 			echo "SQL_Hostname=$SQL_Hostname"
 			echo "SQL_Username=$SQL_Username"
@@ -714,7 +897,7 @@ do_install()
 		echo "#!/bin/bash"
 		echo "#"
 		echo "log=$dir_logs/${Plantname}_\$(date '+%Y%m%d').log"
-		echo "$dir_program/SBFspot $p_daydata -cfg$dir_config/$sbfspotcfg \$1 \$2 \$3 \$4 \$5>>\$log"
+		echo "$dir_program/SBFspot $p_daydata -cfg$dir_config/$sbfspotcfg \$1 \$2 \$3 \$4 \$5 &>>\$log"
 	} >"$daydata"
 	
 	chmod +x "$daydata"
@@ -725,7 +908,7 @@ do_install()
 		echo "#!/bin/bash"
 		echo "#"
 		echo "log=$dir_logs/${Plantname}_\$(date '+%Y%m').log"
-		echo "$dir_program/SBFspot $p_monthdata -cfg$dir_config/$sbfspotcfg \$1 \$2 \$3 \$4 \$5>>\$log"
+		echo "$dir_program/SBFspot $p_monthdata -cfg$dir_config/$sbfspotcfg \$1 \$2 \$3 \$4 \$5 &>>\$log"
 	} >"$monthdata"
 	
 	chmod +x "$monthdata"
@@ -737,7 +920,7 @@ do_install()
 	echo "Running SBFspot..."
 	local firstrun
 	firstrun=$("$dir_program"/SBFspot -v -ad0 -am0 -ae0 -sp0 -nocsv -nosql -finq)
-	#firstrun=$(<"$userhome/firstrun_multigate")
+	#firstrun=$(<"$userhome/firstrun_multigate") # For testing purpose - don't have multigate
 	rc=$?
 	
 	if [ "$rc" -ne 0 ]; then
@@ -754,7 +937,7 @@ do_install()
 	printf "Creating cron jobs...\n"
 
 	# Get current cron jobs without SBFspot related ones
-	cron=$(crontab -l -u "$username" 2>/dev/null|grep -q -E -v "(^$|SBFspot|daydata|monthdata)")
+	cron=$(crontab -l -u "$username" 2>/dev/null|grep -Eqv "(^$|SBFspot|daydata|monthdata)")
 
 	# delete all jobs
 	crontab -r -u "$username" 2>/dev/null
@@ -771,27 +954,24 @@ do_install()
 	
 	# Check for Multigate
 	if [ "$inv_connectiontype" = "Speedwire" ]; then
-		mg=$(echo "$firstrun"|grep -o '^Multigate found')
-		if [ -n "$mg" ]; then
-			#TODO: get serial number of mg only (without sb240)
-			grep -Eo '[0-9]{3}-[0-9]{8,}' firstrun_multigate |grep -v '244-[0-9]*'
+		if [[ "$firstrun" =~ "Multigate found" ]]; then
+			# Get serial number of mg (SUSyID 175)
+			mg=$(grep -Eo '175-[0-9]{8,}' <<<"$firstrun")
+			devserials=${mg:4:12}
 		fi
 	fi
 
 	if [ "$inv_connectiontype" = "Bluetooth" ]; then
+		###
+		#TODO: Check for NetID + MIS_Enabled
+		###
 		netid=$(echo "$firstrun"|awk '/^SMA netID=/ { print $2 }' FS='=')
 		echo "NetID=$netid"
+		devserials=$(echo "$firstrun"|awk '/^Serial number:/ { print $2 }' FS=': *')
+		echo "Device Serial(s): $devserials"
 	fi
 	
-	#TODO: Check for NetID + MIS_Enabled
 
-	devnames=$(echo "$firstrun"|awk '/^Device Name:/ { print $2 }' FS=':      ')
-	devserials=$(echo "$firstrun"|awk '/^Serial number:/ { print $2 }' FS=': *')
-	
-	echo "$devnames"
-	echo "$devserials"
-
-	#
 	# When PVoutput upload enabled, install daemon
 	#
 	
@@ -804,9 +984,21 @@ do_install()
 			crc_dst=($(sha512sum -b "./SBFspotUploadDaemon"))
 		fi
 		
-		# Replace daemon only if changed
+		# Stop & replace daemon only if changed
 		if [ "$crc_src" != "$crc_dst" ];then
-			stopd "SBFspotUploadDaemon"
+			echo "Replacing daemon executable..."
+			# Try systemctl first
+			echo "Stopping daemon..."
+			systemctl stop SBFspotUpload
+			if [ "$?" != "0" ]; then
+				# If systemctl failed (service not found), try old method
+				stopd "SBFspotUploadDaemon"
+			fi
+			# Daemon V1.1.0 and before didn't delete .out file
+			if [ -f "/tmp/SBFspotUploadDaemon.out" ]; then
+				rm "/tmp/SBFspotUploadDaemon.out"
+			fi
+			echo "Copying new daemon..."
 			cp "$tmp_dir/SBFspotUploadDaemon" .
 		fi
 		
@@ -831,7 +1023,7 @@ do_install()
 		local dup_sid
 		dup_sid=$(printf '%s\n' "${sids[@]}"|awk '!($0 in seen){seen[$0];next} 1')
 		if [ -n "$dup_sid" ]; then
-			printf "Duplicate System ID's found:\n$dup_sid"
+			printf "Duplicate System ID's found:\n%s" "$dup_sid"
 			whiptail --msgbox "SBFspotUpload installation failed:\nDuplicate System ID's found:\n$dup_sid" 0 0
 			return 1 # show PVO config menu
 		fi
@@ -899,12 +1091,12 @@ do_install()
 			echo "PVoutput_Key=$PVoutput_Key"
 
 			# Configure SQLite
-			if [ "$lc_dbtype" = "sqlite" ]; then
+			if [ "$dbtype" = "sqlite" ]; then
 				echo "SQL_Database=$SQL_Database"
 			fi
 
 			# Configure MySQL
-			if [ "$lc_dbtype" = "mysql" ]; then
+			if [ "$dbtype" = "mysql" ]; then
 				echo "SQL_Database=$SQL_Database"
 				echo "SQL_Hostname=$SQL_Hostname"
 				echo "SQL_Username=$SQL_Username"
@@ -912,7 +1104,7 @@ do_install()
 			fi
 
 			# Configure MariaDB
-			if [ "$lc_dbtype" = "mariadb" ]; then
+			if [ "$dbtype" = "mariadb" ]; then
 				echo "SQL_Database=$SQL_Database"
 				echo "SQL_Hostname=$SQL_Hostname"
 				echo "SQL_Username=$SQL_Username"
@@ -925,21 +1117,41 @@ do_install()
 		printf "Done\n"
 		
 		# Autostart SBFspotUploadDaemon
+		# In the past we used rc.local to start SBFspotUploadDaemon
+		# Remove all references to SBFspotUploadDaemon
 		local rclocal="$(</etc/rc.local)"
 		{
 			echo "$rclocal" | grep -v '\(^exit 0\|SBFspotUploadDaemon\)'
-			echo "#Start SBFspotUploadDaemon"
-			echo "sudo $dir_program/SBFspotUploadDaemon"
 			echo "exit 0"
 		} >/etc/rc.local
+
+		# Create .service file
+		{
+			echo "[Unit]"
+			echo "Description=SBFspot Upload Daemon"
+			echo "After=mysql.service mariadb.service network.target"
+			echo "[Service]"
+			echo "User=$username"
+			echo "Type=simple"
+			echo "TimeoutStopSec=10"
+			echo "ExecStart=$dir_program/SBFspotUploadDaemon"
+			echo "Restart=on-success"
+			echo "RestartSec=10"
+			echo "[Install]"
+			echo "WantedBy=multi-user.target"
+		} >"$dir_program/SBFspotUpload.service"
 		
-		# Start daemon if not running
-		if [ -z $(pidof "SBFspotUploadDaemon") ]; then
-			echo "Starting daemon..."
-			"$dir_program/SBFspotUploadDaemon"
+		if [ -f "/tmp/SBFspotUploadDaemon.out" ]; then
+			rm "/tmp/SBFspotUploadDaemon.out"
 		fi
-		
+
+		# Enable & start the service
+		systemctl enable "$dir_program/SBFspotUpload.service"
+		systemctl start SBFspotUpload
 	fi
+	
+	echo "Removing temporary files..."
+	cleanup "all"
 	
 	echo "Installation complete"
 
@@ -1484,7 +1696,7 @@ is_installed()
 	rc=$?
 	if [ "$rc" -ne 0 ]; then
 		if "$mandatory"; then
-			printf "Install %s and retry.\nExiting now...\n" "$package"
+			printf "Install '%s' and retry.\nExiting now...\n" "$package"
 			exit 1
 		else
 			printf "Will be installed when needed.\n"
@@ -1502,20 +1714,31 @@ do_preflightcheck()
 		exit 1
 	fi
 
+	# Check if running on Raspberry Pi
 	if is_pi; then
-	  echo "Running on $(tr -d '\0' </proc/device-tree/model)"
+		echo "Running on $(tr -d '\0' </proc/device-tree/model)"
 	else
-	  echo "Error: Not running on Raspberry Pi."
-	  exit 1
+		echo "Error: Not running on Raspberry Pi."
+		exit 1
+	fi
+
+	# Check if running Raspbian
+	if [ $(lsb_release -si) != "Raspbian" ]; then
+		echo "Error: Not running Raspbian."
+		exit 1
+	fi
+
+	# Check if required files exist
+	wget --spider -q "$url_mylocation/tzlatlon"
+	if [ "$?" -ne 0 ]; then
+		echo "Error: tzlatlon not found."
+		exit 1
 	fi
 
 	is_installed "whiptail" true
-	is_installed "tar" true
-	is_installed "wget" true
-	#is_installed "sqlite3" false
-	#is_installed "mysql" false
-	#is_installed "mariadb" false
-	#is_installed "curl" false
+	
+	# Cleanup the mess from failed installations...
+	cleanup
 }
 
 do_preinstallcheck()
@@ -1528,11 +1751,12 @@ do_preinstallcheck()
 		return 1
 	fi
 
-	if [ "$inv_connectiontype" = "Speedwire" ] && [ "$IP_Address" = "0.0.0.0" ]; then
-		printf "\nSpeedwire is not configured correctly!\n"
-		whiptail --msgbox "Speedwire is not configured correctly!" 0 0
-		return 1
-	fi
+	## TODO: Ping IP
+	#if [ "$inv_connectiontype" = "Speedwire" ] ]; then
+	#	printf "\nSpeedwire is not configured correctly!\n"
+	#	whiptail --msgbox "Speedwire is not configured correctly!" 0 0
+	#	return 1
+	#fi
 
 	if [ "$pvo_enabled" -eq 1 ]; then
 		if [ -z "$PVoutput_Key" ] || [ -z "$PVoutput_SID" ]; then
@@ -1546,6 +1770,17 @@ do_preinstallcheck()
 	printf "Done\n"
 	
 	return 0 #OK
+}
+
+# Check if an element is in array
+# contains "an item" "${array[@]}"
+# returns 0 if array contains item, or 1 if not
+contains()
+{
+	local e match="$1"
+	shift
+	for e; do [[ "$e" = "$match" ]] && return 0; done
+	return 1
 }
 
 # Main starts here
@@ -1579,6 +1814,31 @@ echo "username=$username"
 userhome="/home/$username"
 echo "userhome=$userhome"
 
+: ${version_wanted:=$1}
+: ${version_wanted:=$(get_latest_release)}
+
+if [ -z "$version_wanted" ]; then
+	echo "Error: Unable to get available versions"
+	exit 1
+fi
+
+echo "Minimum SBFspot version supported by this tool is $minimum_sbfspot_version"
+
+if [ -z "$1" ]; then
+	echo "Request to install latest version ($version_wanted)"
+else
+	echo "Request to install version $version_wanted"
+fi
+
+# Get available versions
+ver_avail=$(get_releases)
+contains "$version_wanted" ${ver_avail[@]}
+if [ "$?" = "1" ]; then
+	echo "Version $version_wanted is not available for installation."
+	echo "Select one of $ver_avail"
+	exit 1
+fi
+
 cfg_dirty=0
 mkdir -p "$tmppath"
 read_variables
@@ -1589,6 +1849,12 @@ if [ "$rc" -eq 0 ]; then
 	# Main loop
 	#
 	while true; do
+		if [ "$sql_dbtype" = "MySQL" ] || [ "$sql_dbtype" = "MariaDB" ]; then
+			db_on_server="$sql_dbtype on $SQL_Hostname"
+		else
+			db_on_server="$sql_dbtype"
+		fi
+
 		opt=$(whiptail \
 			--title "$appname" \
 			--menu "Setup Options" 0 0 0 \
@@ -1598,7 +1864,7 @@ if [ "$rc" -eq 0 ]; then
 			"2 Connection Type  " "$inv_connectiontype to $(cut -d ',' -f 1 <<< $inv_address)" \
 			"3 Location         " "$Timezone $Latitude/$Longitude" \
 			"4 Plant Name       " "$Plantname" \
-			"5 Database         " "$sql_dbtype" \
+			"5 Database         " "$db_on_server" \
 			"6 PVOutput         " "$(on_off_status "$pvo_enabled")" \
 			"7 Advanced Options " "" \
 			"8 About            " "Information about sbfspot-config" \
@@ -1622,15 +1888,18 @@ if [ "$rc" -eq 0 ]; then
 		elif [ $rc -eq 1 ]; then # Install
 			save_defaults
 			if do_preinstallcheck; then
-				do_install
+				do_install "$version_wanted"
 				rc=$?
 				case "$rc" in
 					0)	whiptail --msgbox "Installation Complete" 0 0
 						exit 0 ;;
 					1)	do_pvo_config ;;
-				  255)	exit 255
+				  255)	exit $wt_esc
 				esac
 			fi
 		fi
 	done
+else	# ESC or Cancel
+	echo "Aborting script..."
+	exit $wt_esc
 fi
