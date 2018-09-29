@@ -54,4 +54,7 @@ This section requires a [PVoutput](https://pvoutput.org) account and an enabled 
 
 ![6-pvoutput](https://user-images.githubusercontent.com/1931158/46250421-c958fe00-c43a-11e8-90a5-853167da58ef.JPG)
 
+### Advanced Options
+Feel free to explore the advanced options for bluetooth, csv output, ...
 
+![7-advanced](https://user-images.githubusercontent.com/1931158/46250445-6451d800-c43b-11e8-9748-c2f56156d799.JPG)
