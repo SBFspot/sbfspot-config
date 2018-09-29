@@ -2,10 +2,10 @@
 Installation/Configuration tool for SBFspot on Raspberry Pi
 
 ### Run the tool
-To install the latest SBFspot version:
+To install the latest SBFspot version:    
 `curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash`
 
-To install a specific SBFspot version (e.g. 3.5.0):
+To install a specific SBFspot version (e.g. 3.5.0):    
 `curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0`
 
 At the time of writing, only one version (3.5.0) is available
@@ -21,7 +21,7 @@ Below I explain the bare minimum steps to configure SBFspot:
 
 ![Launch](https://user-images.githubusercontent.com/1931158/46150028-e68ba200-c26b-11e8-950b-bb7de3053fc2.jpg)
 
-When an older SBFspot.cfg is found, you can use this one to reconfigure
+When an older SBFspot.cfg is found, you can use this one to reconfigure.    
 Remember: it's always a good idea to take a backup of an existing database (SBFspot.db in case of SQLite)
 
 ![0](https://user-images.githubusercontent.com/1931158/46150551-1ab39280-c26d-11e8-8f48-f5c4dc2834ca.JPG)
