@@ -2,13 +2,13 @@
 Installation/Configuration tool for SBFspot on Raspberry Pi
 
 ### Run the tool
-To install the latest SBFspot version:    
+To install the latest SBFspot release:    
 `curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash`
 
-To install a specific SBFspot version (e.g. 3.5.0):    
+To install a specific SBFspot release (e.g. 3.5.0):    
 `curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0`
 
-At the time of writing, only one version (3.5.0) is available
+At the time of writing, only one version (3.5.0) is available.    
 This tool needs to run as root. Depending on the chosen options, it installs software packages and writes to locations where a locked down user can't write. If you're uncomfortable with this, either quit here or have a look at the script first.
 
 ### Navigation
@@ -43,10 +43,15 @@ Enter 1 or more fixed IP addresses.
 
 ### Database
 Select a database you want to use. If you don't have already MySQL or MariaDB server running, SQLite is your best option.
-This howto doesn't cover MySQL/MariaDB server setup. If you don't need a database, you can select NoSQL
+This howto doesn't cover MySQL/MariaDB server setup. If you don't need a database, you can select NoSQL.
+
+![5-database](https://user-images.githubusercontent.com/1931158/46250413-a9c1d580-c43a-11e8-93b8-c334f825c2e2.JPG)
 
 ### PVoutput
 This section requires a [PVoutput](https://pvoutput.org) account and an enabled API key.
 
+![6-pvoutput_api](https://user-images.githubusercontent.com/1931158/46250420-c4944a00-c43a-11e8-8b56-2323cfc04ec5.JPG)
 
-# To be continued...
+![6-pvoutput](https://user-images.githubusercontent.com/1931158/46250421-c958fe00-c43a-11e8-90a5-853167da58ef.JPG)
+
+
