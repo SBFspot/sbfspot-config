@@ -9,7 +9,7 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.0.7
+# sbfspot-config V1.0.8
 # (c) 2017-2018, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian)
@@ -23,7 +23,7 @@
 # To install a specific SBFspot version (e.g. 3.5.0):
 # curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
 
-readonly toolversion="1.0.7"
+readonly toolversion="1.0.8"
 readonly appname="SBFspot Configuration Tool V$toolversion"
 readonly minimum_sbfspot_version="3.5.0"
 
@@ -264,9 +264,9 @@ read_variables()
 	if [ "$cfg" = "$cfg_new" ]; then
 		echo "Creating new config..."
 		create_defaults
-	elif  [ "$cfg" = "$cfg_saved" ]; then
+	elif [ "$cfg" = "$cfg_saved" ]; then
 		read_defaults
-	else
+	else # Existing SBFspot.cfg
 		create_defaults
 		
 		# Reset SQL_Database in case .cfg is configured for NoSQL
@@ -723,6 +723,29 @@ do_install()
 	chown "$username:$username" "$dir_smadata"
 	cd "$dir_smadata"
 
+	printf "Copying files...\n"
+
+	mkdir -p "$dir_logs"
+	chown -R "$username:$username" "$dir_logs"
+
+	mkdir -p "$dir_program"
+	cd "$dir_program"
+	cp "$tmp_dir/SBFspot" .
+	chmod 755 SBFspot
+	
+	if [ "$dbtype" = "mysql" ] || [ "$dbtype" = "mariadb" ]; then
+		cp "$tmp_dir/CreateMySQLDB.sql" .
+		cp "$tmp_dir/CreateMySQLUser.sql" .
+		chmod 644 *.sql
+	fi
+	
+	cp "$tmp_dir/date_time_zonespec.csv" .
+	chmod 644 date_time_zonespec.csv
+	
+	for file in "$tmp_dir/TagList"*".txt"; do cp "$file" .;done
+	chmod 644 TagList*
+	
+	# Setup SQLite db
 	if [ "$dbtype" = "sqlite" ]; then
 		install_pkg sqlite3
 		
@@ -747,6 +770,8 @@ do_install()
 		fi
 	fi
 	
+	# Setup MySQL/MariaDB
+	# User is responsible for creating SBFspot db
 	if [ "$dbtype" = "mysql" ] || [ "$dbtype" = "mariadb" ]; then
 		install_pkg "$dbtype-client"
 
@@ -756,7 +781,7 @@ do_install()
 		# Check for errors
 		local sql_error=$(grep -i "ERROR [^:]*: " $tmp_dir/sqldb.test)
 		if [ -n "$sql_error" ]; then
-			whiptail --msgbox "There is a problem:\n$sql_error" 0 0
+			whiptail --msgbox "There is a problem:\n$sql_error\n\nDid you create SBFspot database?\n$dbtype < $dir_program/CreateMySQLDB.sql\n$dbtype < $dir_program/CreateMySQLUser.sql" 0 0
 			echo "$sql_error"
 			echo "Installation aborted"
 			return 255
@@ -772,23 +797,7 @@ do_install()
 		# TODO: Validate SchemaVersion
 		echo "Schema Version=$schemaversion"
 	fi
-	
-	printf "Copying files...\n"
 
-	mkdir -p "$dir_logs"
-	chown -R "$username:$username" "$dir_logs"
-
-	mkdir -p "$dir_program"
-	cd "$dir_program"
-	cp "$tmp_dir/SBFspot" .
-	chmod 755 SBFspot
-	
-	cp "$tmp_dir/date_time_zonespec.csv" .
-	chmod 644 date_time_zonespec.csv
-	
-	for file in "$tmp_dir/TagList"*".txt"; do cp "$file" .;done
-	chmod 644 TagList*
-	
 	mkdir -p "$dir_config"
 	cd "$dir_config"
 	
@@ -804,7 +813,7 @@ do_install()
 		echo "#                                         |_|                                   "
 		echo "#                                                                               "
 		echo "#  SBFspot.cfg - Configuration file for SBFspot.exe                             "
-		echo "#  SBFspot - Yet another tool to read power production of SMA® solar inverters  "
+		echo "#  SBFspot - Yet another tool to read power production of SMA solar inverters  "
 		echo "#  (c)2012-$(date '+%Y'), SBF (https://github.com/SBFspot/SBFspot)              "
 		echo "#                                                                               "
 		echo "#  DISCLAIMER:                                                                  "
@@ -1067,7 +1076,7 @@ do_install()
 		{
 			echo "################################################################################"
 			echo "#  SBFspotUpload.cfg - Configuration file for SBFspotUploadService/Daemon       "
-			echo "#  SBFspot - Yet another tool to read power production of SMA® solar inverters  "
+			echo "#  SBFspot - Yet another tool to read power production of SMA solar inverters  "
 			echo "#  (c)2012-$(date '+%Y'), SBF (https://github.com/SBFspot/SBFspot)              "
 			echo "#                                                                               "
 			echo "#  DISCLAIMER:                                                                  "
