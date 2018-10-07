@@ -1,5 +1,9 @@
 # sbfspot-config
-Installation/Configuration tool for SBFspot on Raspberry Pi
+
+### Introduction
+sbfspot-config is a semi-automated configuration and installation tool for SBFspot on Raspberry Pi running Raspbian.
+This tool installs precompiled binaries of SBFspot/SBFspotUploadDaemon, configures SBFspot including crontab and the daemon for PVoutput uploads.    
+When finished, you should have a complete working system.
 
 ### Run the tool
 To install the latest SBFspot release:    
@@ -9,7 +13,7 @@ To install a specific SBFspot release (e.g. 3.5.0):
 `curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0`
 
 At the time of writing, only one version (3.5.0) is available.    
-This tool needs to run as root. Depending on the chosen options, it installs software packages and writes to locations where a locked down user can't write. If you're uncomfortable with this, either quit here or have a look at the script first.
+This tool needs to run as root. Depending on the chosen options, it installs software packages such as sqlite3, mysql-client, mariadb-client and writes to locations where a locked down user can't write. If you're uncomfortable with this, either quit here or have a look at the script first.
 
 ### Navigation
 sbfspot-config uses [whiptail](https://en.wikibooks.org/wiki/Bash_Shell_Scripting/Whiptail) for the dialog boxes. You might be already familiar with it by using raspi-config (Yes, I took a close look at this one)
@@ -43,7 +47,8 @@ Enter 1 or more fixed IP addresses.
 
 ### Database
 Select a database you want to use. If you don't have already MySQL or MariaDB server running, SQLite is your best option.
-This howto doesn't cover MySQL/MariaDB server setup. If you don't need a database, you can select NoSQL.
+This howto doesn't cover MySQL/MariaDB server setup. There are two SQL scripts to create the [SBFspot database](https://github.com/SBFspot/SBFspot/blob/master/SBFspot/CreateMySQLDB.sql) and the [SBFspot user](https://github.com/SBFspot/SBFspot/blob/master/SBFspot/CreateMySQLUser.sql).
+If you don't need a database, you can select NoSQL.
 
 ![5-database](https://user-images.githubusercontent.com/1931158/46250413-a9c1d580-c43a-11e8-93b8-c334f825c2e2.JPG)
 
@@ -58,3 +63,14 @@ This section requires a [PVoutput](https://pvoutput.org) account and an enabled 
 Feel free to explore the advanced options for bluetooth, csv output, ...
 
 ![7-advanced](https://user-images.githubusercontent.com/1931158/46250445-6451d800-c43b-11e8-9748-c2f56156d799.JPG)
+
+### Install SBFspot
+When everything is configured, select [INSTALL] at the main window.
+Some preflight checks are done and if no issues are found the installation starts.
+
+![installing](https://user-images.githubusercontent.com/1931158/46585357-31799680-ca70-11e8-9563-89c4bc219f15.jpg)
+
+### All done
+If everything is OK, you should see the final "Installation Complete" message
+
+![complete](https://user-images.githubusercontent.com/1931158/46585363-3b9b9500-ca70-11e8-8eb0-1058d479c20a.JPG)
