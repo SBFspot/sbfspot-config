@@ -9,7 +9,7 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.0.8
+# sbfspot-config V1.0.9
 # (c) 2017-2018, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian)
@@ -23,7 +23,7 @@
 # To install a specific SBFspot version (e.g. 3.5.0):
 # curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
 
-readonly toolversion="1.0.8"
+readonly toolversion="1.0.9"
 readonly appname="SBFspot Configuration Tool V$toolversion"
 readonly minimum_sbfspot_version="3.5.0"
 
@@ -758,7 +758,7 @@ do_install()
 		fi
 
 		echo "Checking database..."
-		sqlite3 -separator ' ' SBFspot.db "select * from config where key='SchemaVersion'" &>"$tmp_dir/sqldb.test"
+		sqlite3 -separator ' ' SBFspot.db "SELECT * FROM Config WHERE Key='SchemaVersion'" &>"$tmp_dir/sqldb.test"
 
 		# Check for errors
 		local sql_error=$(grep -i "ERROR: " $tmp_dir/sqldb.test)
@@ -776,7 +776,7 @@ do_install()
 		install_pkg "$dbtype-client"
 
 		echo "Checking database..."
-		$dbtype -h $SQL_Hostname -u $SQL_Username -p$SQL_Password $SQL_Database -B --disable-column-names -e 'select * from sbfspot.config where `key`="SchemaVersion";' &>"$tmp_dir/sqldb.test"
+		$dbtype -h $SQL_Hostname -u $SQL_Username -p$SQL_Password $SQL_Database -B --disable-column-names -e 'SELECT * FROM SBFspot.Config WHERE `Key`="SchemaVersion";' &>"$tmp_dir/sqldb.test"
 
 		# Check for errors
 		local sql_error=$(grep -i "ERROR [^:]*: " $tmp_dir/sqldb.test)
