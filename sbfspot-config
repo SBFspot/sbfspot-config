@@ -9,7 +9,7 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.0.9
+# sbfspot-config V1.0.10
 # (c) 2017-2018, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian)
@@ -23,7 +23,7 @@
 # To install a specific SBFspot version (e.g. 3.5.0):
 # curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
 
-readonly toolversion="1.0.9"
+readonly toolversion="1.0.10"
 readonly appname="SBFspot Configuration Tool V$toolversion"
 readonly minimum_sbfspot_version="3.5.0"
 
@@ -976,8 +976,6 @@ do_install()
 		###
 		netid=$(echo "$firstrun"|awk '/^SMA netID=/ { print $2 }' FS='=')
 		echo "NetID=$netid"
-		devserials=$(echo "$firstrun"|awk '/^Serial number:/ { print $2 }' FS=': *')
-		echo "Device Serial(s): $devserials"
 	fi
 	
 
@@ -987,6 +985,9 @@ do_install()
 	if [ "$pvo_enabled" -eq 1 ]; then
 		echo "PVO enabled, configuring upload daemon..."
 		
+		devserials=$(echo "$firstrun"|awk '/^Serial number:/ { print $2 }' FS=': *')
+		echo "Device Serial(s): $devserials"
+
 		local crc_src=($(sha512sum -b "$tmp_dir/SBFspotUploadDaemon"))
 		if [ -f "./SBFspotUploadDaemon" ]; then
 			local crc_dst
