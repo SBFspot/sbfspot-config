@@ -9,7 +9,7 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.0.10
+# sbfspot-config V1.0.11
 # (c) 2017-2018, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian)
@@ -23,7 +23,9 @@
 # To install a specific SBFspot version (e.g. 3.5.0):
 # curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
 
-readonly toolversion="1.0.10"
+#set -uo pipefail
+
+readonly toolversion="1.0.11"
 readonly appname="SBFspot Configuration Tool V$toolversion"
 readonly minimum_sbfspot_version="3.5.0"
 
@@ -721,15 +723,15 @@ do_install()
 
 	mkdir -p "$dir_smadata"
 	chown "$username:$username" "$dir_smadata"
-	cd "$dir_smadata"
-
-	printf "Copying files...\n"
 
 	mkdir -p "$dir_logs"
 	chown -R "$username:$username" "$dir_logs"
 
 	mkdir -p "$dir_program"
 	cd "$dir_program"
+
+	printf "Copying files...\n"
+
 	cp "$tmp_dir/SBFspot" .
 	chmod 755 SBFspot
 	
@@ -748,6 +750,8 @@ do_install()
 	# Setup SQLite db
 	if [ "$dbtype" = "sqlite" ]; then
 		install_pkg sqlite3
+		
+		cd "$dir_smadata"
 		
 		if [ -f SBFspot.db ]; then
 			echo "SBFspot.db exists"
@@ -988,29 +992,33 @@ do_install()
 		devserials=$(echo "$firstrun"|awk '/^Serial number:/ { print $2 }' FS=': *')
 		echo "Device Serial(s): $devserials"
 
-		local crc_src=($(sha512sum -b "$tmp_dir/SBFspotUploadDaemon"))
-		if [ -f "./SBFspotUploadDaemon" ]; then
-			local crc_dst
-			crc_dst=($(sha512sum -b "./SBFspotUploadDaemon"))
-		fi
+		local crc_src
+		local crc_dst
 		
-		# Stop & replace daemon only if changed
-		if [ "$crc_src" != "$crc_dst" ];then
-			echo "Replacing daemon executable..."
-			# Try systemctl first
-			echo "Stopping daemon..."
-			systemctl stop SBFspotUpload
-			if [ "$?" != "0" ]; then
-				# If systemctl failed (service not found), try old method
-				stopd "SBFspotUploadDaemon"
+		crc_src=($(sha512sum -b "$tmp_dir/SBFspotUploadDaemon"))
+		
+		if [ -f "$dir_program./SBFspotUploadDaemon" ]; then
+			crc_dst=($(sha512sum -b "$dir_program/SBFspotUploadDaemon"))
+
+			# Stop & replace daemon only if changed
+			if [ "$crc_src" != "$crc_dst" ];then
+				echo "Replacing daemon executable..."
+				# Try systemctl first
+				echo "Stopping daemon..."
+				systemctl stop SBFspotUpload
+				if [ "$?" != "0" ]; then
+					# If systemctl failed (service not found), try old method
+					stopd "SBFspotUploadDaemon"
+				fi
+				# Daemon V1.1.0 and before didn't delete .out file
+				if [ -f "/tmp/SBFspotUploadDaemon.out" ]; then
+					rm "/tmp/SBFspotUploadDaemon.out"
+				fi
 			fi
-			# Daemon V1.1.0 and before didn't delete .out file
-			if [ -f "/tmp/SBFspotUploadDaemon.out" ]; then
-				rm "/tmp/SBFspotUploadDaemon.out"
-			fi
-			echo "Copying new daemon..."
-			cp "$tmp_dir/SBFspotUploadDaemon" .
 		fi
+
+		echo "Copying daemon..."
+		cp "$tmp_dir/SBFspotUploadDaemon" .
 		
 		install_pkg "curl"
 		
