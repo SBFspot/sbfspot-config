@@ -9,7 +9,7 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.0.11
+# sbfspot-config V1.0.12
 # (c) 2017-2018, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian)
@@ -25,8 +25,10 @@
 
 #set -uo pipefail
 
-readonly toolversion="1.0.11"
+readonly toolversion="1.0.12"
 readonly appname="SBFspot Configuration Tool V$toolversion"
+readonly appshortname="sbfspot-config"
+
 readonly minimum_sbfspot_version="3.5.0"
 
 # default SBFspot parameters used in cron jobs
@@ -152,6 +154,7 @@ read_defaults()
 	fi
 
 	printf "Done\n"
+echo "read_defaults:$dir_smadata"
 }
 
 save_defaults()
@@ -162,6 +165,7 @@ save_defaults()
 
 	{
 		echo "#SBFspot installation defaults - Created $(date)"
+		echo "#$appshortname V$toolversion"
 		echo "fileversion=$toolversion"
 		
 		echo "dir_logs=$dir_logs"
@@ -615,6 +619,7 @@ do_db_config()
 	else
 		pvo_enabled="1"
 	fi
+echo "do_db_config:$SQL_Database"
 }
 
 do_mysql_config()
@@ -831,7 +836,7 @@ do_install()
 		echo "#    SMA and Speedwire are registered trademarks of SMA Solar Technology AG     "
 		echo "################################################################################"
 		echo "#"
-		echo "# $sbfspotcfg - Created $(date)"
+		echo "# $sbfspotcfg - Created $(date) with $appshortname V$toolversion"
 		echo "# For detailed configuration info, refer to SBFspot.default.cfg"
 		echo "#"
 
@@ -1099,7 +1104,7 @@ do_install()
 			echo "#    SMA and Speedwire are registered trademarks of SMA Solar Technology AG     "
 			echo "################################################################################"
 			echo "#"
-			echo "# $sbfspotuploadcfg - Created $(date)"
+			echo "# $sbfspotuploadcfg - Created $(date) with $appshortname V$toolversion"
 			echo "# For detailed configuration info, refer to SBFspotUpload.default.cfg"
 			echo "#"
 
@@ -1303,8 +1308,7 @@ get_number()
 do_location()
 {
 	local rc=0
-	local tmp_Latitude="$Latitude"
-	local tmp_Longitude="$Longitude"
+	local tmp_Location="$Latitude/$Longitude"
 	local tmp_Locale="$Locale"
 	local tmp_DecimalPoint="$DecimalPoint"
 
@@ -1315,7 +1319,7 @@ do_location()
 			--cancel-button "OK" \
 			--ok-button "Select" \
 			"1 Timezone       : " "$Timezone" \
-			"2 Location       : " "$tmp_Latitude/$tmp_Longitude" \
+			"2 Location       : " "$tmp_Location" \
 			"3 Locale         : " "$tmp_Locale" \
 			"4 Decimal Symbol : " "$tmp_DecimalPoint" \
 			3>&1 1>&2 2>&3)
@@ -1327,16 +1331,10 @@ do_location()
 		elif [ $rc -eq 0 ]; then # Select/Enter
 			case "$opt" in
 				1\ *)	whiptail --msgbox "Timezone can't be changed here.\nRun raspi-config to perform this action." 0 0 ;;
-				2\ *)	tmp_Latitude=$(get_input "Refer to http://itouchmap.com/latlong.html\nto get the exact location\n\nEnter latitude for your location" "$tmp_Latitude" "Location")
+				2\ *)	tmp_Location=$(get_input "Refer to http://itouchmap.com/latlong.html\nto get the exact location\n\nEnter latitude/longitude for your location" "$tmp_Location" "Location")
 						rc=$?
 						if [ $rc -eq $wt_esc ]; then # ESC
-							tmp_Latitude="$Latitude"
-						else
-							tmp_Longitude=$(get_input "Refer to http://itouchmap.com/latlong.html\nto get the exact location\n\nEnter longitude for your location" "$tmp_Longitude" "Location")
-							rc=$?
-							if [ $rc -eq $wt_esc ]; then # ESC
-								tmp_Longitude="$Longitude"
-							fi
+							tmp_Location="$Latitude/$Longitude"
 						fi
 						;;
 				3\ *)	tmp_Locale=$(get_option $'en-US\tEnglish\nnl-NL\tNederlands\nde-DE\tDeutsch\nfr-FR\tFrancais\nes-ES\tEspagnol\nit-IT\tItaliano' "$tmp_Locale" "Locale")
@@ -1350,8 +1348,10 @@ do_location()
 				4\ *) tmp_DecimalPoint=$(get_option $'comma\tcomma\ndot\tdot' "$tmp_DecimalPoint" "Decimal Symbol" "" "radio" --notags) ;;
 			esac
 		elif [ $rc -eq 1 ]; then # OK
-			Latitude="$tmp_Latitude"
-			Longitude="$tmp_Longitude"
+			local IFS=/
+			set $tmp_Location
+			Latitude=$1
+			Longitude=$2
 			Locale="$Locale"
 			DecimalPoint="$DecimalPoint"
 			cfg_dirty=1
@@ -1398,10 +1398,20 @@ menu_directories()
 			dir_logs="$tmp_dir_logs"
 			dir_program="$tmp_dir_program"
 			dir_config="$tmp_dir_config"
+			update_smadata_dependencies # Change paths do SBFspot.db and CSV files
 			cfg_dirty=1
 			return
 		fi
 	done
+}
+
+update_smadata_dependencies()
+{
+	if [ "$sql_dbtype" = "SQLite" ]; then
+		SQL_Database="$dir_smadata/SBFspot.db"
+	fi
+	OutputPath="$dir_smadata/%Y"
+	OutputPathEvents="$dir_smadata/%Y/Events"
 }
 
 get_option()
@@ -1867,6 +1877,7 @@ if [ "$rc" -eq 0 ]; then
 	# Main loop
 	#
 	while true; do
+
 		if [ "$sql_dbtype" = "MySQL" ] || [ "$sql_dbtype" = "MariaDB" ]; then
 			db_on_server="$sql_dbtype on $SQL_Hostname"
 		else
