@@ -1,12 +1,12 @@
 #!/bin/bash
 # shellcheck disable=SC1090,SC1117,SC2034,SC2164
 #
-#             _      __                 _                         __ _       
-#         ___| |__  / _|___ _ __   ___ | |_       ___ ___  _ __  / _(_) __ _ 
+#             _      __                 _                         __ _
+#         ___| |__  / _|___ _ __   ___ | |_       ___ ___  _ __  / _(_) __ _
 #        / __| '_ \| |_/ __| '_ \ / _ \| __|____ / __/ _ \| '_ \| |_| |/ _` |
 #        \__ \ |_) |  _\__ \ |_) | (_) | |_|____| (_| (_) | | | |  _| | (_| |
 #        |___/_.__/|_| |___/ .__/ \___/ \__|     \___\___/|_| |_|_| |_|\__, |
-#                          |_|                                         |___/ 
+#                          |_|                                         |___/
 #
 #
 # sbfspot-config V1.0.12
@@ -67,7 +67,7 @@ create_defaults()
 	dir_config="$cfgpath"
 	inv_connectiontype="Bluetooth"
 	inv_serials=""
-	
+
 	# SBFspot.cfg Variables
 	BTAddress="00:00:00:00:00:00"
 	IP_Address="0.0.0.0"
@@ -75,7 +75,7 @@ create_defaults()
 	Plantname="MyPlant"
 	MIS_Enabled="0"
 	BTConnectRetries="10"
-	
+
 	CSV_Export="1"
 	OutputPath="$dir_smadata/%Y"
 	OutputPathEvents="$dir_smadata/%Y/Events"
@@ -85,7 +85,7 @@ create_defaults()
 	CSV_Delimiter="semicolon"
 	CSV_Spot_TimeSource="inverter"
 	CSV_Spot_WebboxHeader="0"
-	
+
 	Timezone="$(</etc/timezone)"
 	wget -o"$tmp_dir/wget.txt" -NP "$tmppath" "$url_mylocation/tzlatlon"
 	local latlon
@@ -103,18 +103,18 @@ create_defaults()
 	SQL_Hostname=""
 	SQL_Username=""
 	SQL_Password=""
-	
+
 	CalculateMissingSpotValues="0"
-	
+
 	SynchTime="7"
 	SynchTimeLow="60"
 	SynchTimeHigh="3600"
 	SunRSOffset="900"
-	
+
 	# SBFspotUpload.cfg Variables
 	PVoutput_SID=""
 	PVoutput_Key=""
-	
+
 	# General Runtime Variables
 	if [ "$inv_connectiontype" = "Bluetooth" ]; then
 		inv_address="$BTAddress"
@@ -127,16 +127,16 @@ create_defaults()
 	else
 		pvo_enabled="1"
 	fi
-	
+
 	cfg_dirty=1
 }
 
 read_defaults()
 {
 	printf "Reading defaults from %s... " "$defaultsfile"
-	
+
 	#TODO: compare fileversion with toolversion and take appropriate actions
-	
+
 	source "$defaultsfile"
 
 	dir_smadata="$userhome/smadata"
@@ -167,7 +167,7 @@ save_defaults()
 		echo "#SBFspot installation defaults - Created $(date)"
 		echo "#$appshortname V$toolversion"
 		echo "fileversion=$toolversion"
-		
+
 		echo "dir_logs=$dir_logs"
 		echo "dir_program=$dir_program"
 		echo "dir_config=$dir_config"
@@ -181,7 +181,7 @@ save_defaults()
 		echo "Plantname=$Plantname"
 		echo "MIS_Enabled=$MIS_Enabled"
 		echo "BTConnectRetries=$BTConnectRetries"
-		
+
 		echo "CSV_Export=$CSV_Export"
 		echo "OutputPath=$OutputPath"
 		echo "OutputPathEvents=$OutputPathEvents"
@@ -206,18 +206,18 @@ save_defaults()
 		echo "SQL_Password=$SQL_Password"
 
 		echo "CalculateMissingSpotValues=$CalculateMissingSpotValues"
-		
+
 		echo "SynchTime=$SynchTime"
 		echo "SynchTimeLow=$SynchTimeLow"
 		echo "SynchTimeHigh=$SynchTimeHigh"
 		echo "SunRSOffset=$SunRSOffset"
-		
+
 		echo "PVoutput_SID=$PVoutput_SID"
 		echo "PVoutput_Key=$PVoutput_Key"
 	} >"$defaultsfile"
-	
+
 	cfg_dirty=0
-	
+
 	printf "Done\n"
 }
 
@@ -237,15 +237,15 @@ search_config()
 	else
 		options="$cfg_new"$'\t \ton\n'"$options"
 	fi
-	
+
 	IFS=$'\t\n'
 	local rc
 	local opt
-	
+
 	opt=$(whiptail --radiolist  \
 		--title "Select configuration" \
 		"Select an existing configuration or create a new one\n\nUse <SPACE> to make a selection, <ESC> to cancel" 0 0 0 ${options} 3>&1 1>&2 2>&3)
-	
+
 	rc=$?
 	if [ "$rc" -eq 0 ]; then # OK
 		echo "$opt"
@@ -257,16 +257,16 @@ search_config()
 read_variables()
 {
 	local rc=0
-	
+
 	echo "Searching for existing configuration(s)..."
 	local cfg
 	cfg=$(search_config)
 	rc=$?
-	
+
 	if [ "$rc" -ne 0 ]; then
 		return $rc # ESC or Cancel
 	fi
-	
+
 	if [ "$cfg" = "$cfg_new" ]; then
 		echo "Creating new config..."
 		create_defaults
@@ -274,10 +274,10 @@ read_variables()
 		read_defaults
 	else # Existing SBFspot.cfg
 		create_defaults
-		
+
 		# Reset SQL_Database in case .cfg is configured for NoSQL
 		SQL_Database=""
-		
+
 		# Read .cfg files
 		local tempcfg="$tmppath/cfg.tmp"
 		grep -Po "^[aA-zZ_]*=[aA-zZ0-9/%.:-]*" "$cfg">"$tempcfg"
@@ -308,18 +308,18 @@ read_variables()
 			inv_connectiontype="Speedwire"
 			inv_address="$IP_Address"
 		fi
-		
+
 		if [ -z "$SQL_Database" ]; then
 			sql_dbtype="NoSQL"
 		fi
-		
+
 		if [ "$sql_dbtype" = "NoSQL" ] || [ -z "$PVoutput_Key" ]; then
 			pvo_enabled="0"
 		else
 			pvo_enabled="1"
 		fi
 	fi
-	
+
 	return 0 # OK
 }
 
@@ -332,7 +332,7 @@ cleanup()
 	rm -fr "$tmppath/mysql"
 	rm -fr "$tmppath/mariadb"
 	rm -fr "$tmppath/nosql"
-	
+
 	# Remove all other files on successfull installation
 	if [ "$1" = "all" ]; then
 		rm -f "$tmppath/sbfspot.defaults"
@@ -345,7 +345,7 @@ cleanup()
 vvalue()
 {
 	local ver="$1"	# Version as string
-	
+
 	local parts=($(echo $ver | tr '.' ' '))
 	local mul=1
 	local value=0
@@ -371,7 +371,7 @@ get_latest_release()
 			highest_version_value="$version_value"
 		fi
 	done
-	
+
 	echo "$highest_version"
 }
 
@@ -379,7 +379,7 @@ get_latest_release()
 get_releases()
 {
 	local arr_releases=()
-	
+
 	local url="$url_releases"
 	# remove ending "/" if any
 	if [ "${url: -1}" = "/" ]; then
@@ -387,12 +387,12 @@ get_releases()
 	fi
 
 	wget -qNP "$tmppath" "$url"
-	
+
 	if [ -f "$tmppath/releases" ]; then
 		local rlist=($(grep -Po "(\d+\.)(\d+\.)(\d)/.*\.gz" "$tmppath/releases"))
-		
+
 		local min_version_value=$(vvalue $minimum_sbfspot_version)
-		
+
 		for (( i=0; i<${#rlist[@]}; i++ )); do
 			local version=$(echo "${rlist[$i]}"|awk '/$/ { print $1 }' FS='/')
 			local version_value=$(vvalue $version)
@@ -400,14 +400,14 @@ get_releases()
 				arr_releases+=("$version")
 			fi
 		done
-		
+
 		# Sort releases, keeping unique versions only
 		arr_releases=($(printf "%s\n" "${arr_releases[@]}" | sort -u));
-	
-		# Cleanup 
+
+		# Cleanup
 		rm -f "$tmppath/releases"
 	fi
-	
+
 	echo "${arr_releases[@]}"
 }
 
@@ -421,11 +421,11 @@ bt_scan ()
 {
 	local mac=""
 	local rc=0
-	
+
 	# Limit MAC addresses to SMA Solar Technology AG / STOLLMANN GMBH
 	local sma_mac="00:(15:BB|80:25):"
 	local macfilter="$sma_mac([0-9aA-fF]{2}:){2}[0-9aA-fF]{2}"
-	
+
 	while [ -z "$mac" ]; do
 		echo Scanning for Bluetooth devices, please wait...
 		IFS=
@@ -458,9 +458,9 @@ bt_scan ()
 			local values
 			values=$(echo "$maclist" | tr '\t' '~' | tr '\n' '~')
 
-			IFS='~'	
+			IFS='~'
 			mac=$(whiptail --checklist --title "Configure Bluetooth" "Select your inverter" 0 0 0 ${values} 3>&1 1>&2 2>&3)
-			
+
 			rc=$?
 
 			if [ "$rc" -eq 0 ]; then # OK
@@ -491,7 +491,7 @@ bt_scan ()
 		fi
 		unset IFS
 	done
-	
+
 	inv_connectiontype="Bluetooth"
 	inv_address="$BTAddress"
 	cfg_dirty=1
@@ -501,15 +501,15 @@ do_connection_type ()
 {
 	local conntype
 	local rc=0
-	
+
 	while true; do
 		conntype=$(whiptail --menu --title "Connection Type" \
 			--cancel-button "OK" \
 			--ok-button "Select" \
 			"" 0 0 0 "Bluetooth" "" "Speedwire/WebConnect" "" 3>&1 1>&2 2>&3)
-		
+
 		rc=$?
-		
+
 		if [ "$rc" -ne 0 ]; then
 			return
 		fi
@@ -529,7 +529,7 @@ do_connection_type ()
 				if [ "$rc" -ne 0 ]; then	# ESC/Cancel
 					break
 				fi
-				
+
 				# Check for valid IP addresses
 				if echo "$tmp_IP_Address" | grep -Pq "^(((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?),)*(((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))+$"; then
 					inv_connectiontype="$tmp_inv_connectiontype"
@@ -553,7 +553,7 @@ do_db_config()
 
 	local db_choice="$sql_dbtype"
 	local rc=0
-	
+
 	db_choice=$(get_option $'SQLite\tRecommended\nMySQL\tConnect to MySQL/MariaDB server\nMariaDB\tConnect to MySQL/MariaDB server\nNoSQL\tNo database - CSV only' "$db_choice" "Database Configuration")
 
 	rc=$?
@@ -642,9 +642,9 @@ do_mysql_config()
 			"3 Username :" "$tmp_SQL_Username" \
 			"4 Password :" "$tmp_SQL_Password" \
 			3>&1 1>&2 2>&3)
-			
+
 		rc=$?
-		
+
 		if [ $rc -eq $wt_esc ]; then # ESC
 			return
 		elif [ $rc -eq 0 ]; then # Select/Enter
@@ -704,7 +704,7 @@ do_install()
 	local sbfspotuploadcfg="SBFspotUpload.cfg"
 	local rc=0
 	local dbtype="${sql_dbtype,,}" # Make lowercase
-	 
+
 	local tmp_dir="$tmppath/$dbtype"
 	mkdir -p "$tmp_dir"
 	cd "$tmp_dir"
@@ -713,7 +713,7 @@ do_install()
 	if [ "$db" = "mariadb" ]; then
 		db="mysql"
 	fi
- 	
+
 	local targz="sbfspot-$db-arm-linux.tar.gz"
 	echo "Downloading $url_releases/download/V$install_release/$targz"
 	wget -o"$tmp_dir/wget.txt" -NP "$tmp_dir" "$url_releases/download/V$install_release/$targz"
@@ -739,25 +739,25 @@ do_install()
 
 	cp "$tmp_dir/SBFspot" .
 	chmod 755 SBFspot
-	
+
 	if [ "$dbtype" = "mysql" ] || [ "$dbtype" = "mariadb" ]; then
 		cp "$tmp_dir/CreateMySQLDB.sql" .
 		cp "$tmp_dir/CreateMySQLUser.sql" .
 		chmod 644 *.sql
 	fi
-	
+
 	cp "$tmp_dir/date_time_zonespec.csv" .
 	chmod 644 date_time_zonespec.csv
-	
+
 	for file in "$tmp_dir/TagList"*".txt"; do cp "$file" .;done
 	chmod 644 TagList*
-	
+
 	# Setup SQLite db
 	if [ "$dbtype" = "sqlite" ]; then
 		install_pkg sqlite3
-		
+
 		cd "$dir_smadata"
-		
+
 		if [ -f SBFspot.db ]; then
 			echo "SBFspot.db exists"
 		else
@@ -778,7 +778,7 @@ do_install()
 			return 255
 		fi
 	fi
-	
+
 	# Setup MySQL/MariaDB
 	# User is responsible for creating SBFspot db
 	if [ "$dbtype" = "mysql" ] || [ "$dbtype" = "mariadb" ]; then
@@ -802,14 +802,14 @@ do_install()
 		local sv
 		read -r -a sv <<< $(grep -P "^SchemaVersion\s*\d*" $tmp_dir/sqldb.test)
 		local schemaversion=${sv[1]}
-		
+
 		# TODO: Validate SchemaVersion
 		echo "Schema Version=$schemaversion"
 	fi
 
 	mkdir -p "$dir_config"
 	cd "$dir_config"
-	
+
 	printf "Configuring SBFspot... "
 
 	{
@@ -846,18 +846,18 @@ do_install()
 			echo "MIS_Enabled=$MIS_Enabled"
 			echo "BTConnectRetries=$BTConnectRetries"
 		fi
-		
+
 		# Configure Speedwire
 		if [ "$inv_connectiontype" = "Speedwire" ]; then
 			echo "IP_Address=$IP_Address"
 		fi
-		
+
 		# Configure User Password
 		echo "Password=$Password"
 
 		# Configure Plant Name
 		echo "Plantname=$Plantname"
-		
+
 		echo "OutputPath=$OutputPath"
 		echo "OutputPathEvents=$OutputPathEvents"
 
@@ -879,7 +879,7 @@ do_install()
 		echo "DateFormat=$DateFormat"
 		echo "TimeFormat=$TimeFormat"
 		echo "DecimalPoint=$DecimalPoint"
-		
+
 		# Configure advanced settings
 		echo "CalculateMissingSpotValues=$CalculateMissingSpotValues"
 
@@ -906,9 +906,9 @@ do_install()
 
 		echo "# End of Config"
 	} >"$sbfspotcfg"
-	
+
 	printf "Done\n"
-	
+
 	# launch script for daydata (every 5 minutes)
 	local daydata="$dir_program/daydata"
 	{
@@ -917,9 +917,9 @@ do_install()
 		echo "log=$dir_logs/${Plantname}_\$(date '+%Y%m%d').log"
 		echo "$dir_program/SBFspot $p_daydata -cfg$dir_config/$sbfspotcfg \$1 \$2 \$3 \$4 \$5 &>>\$log"
 	} >"$daydata"
-	
+
 	chmod +x "$daydata"
-	
+
 	# launch script for monthdata (once a day)
 	local monthdata="$dir_program/monthdata"
 	{
@@ -928,19 +928,19 @@ do_install()
 		echo "log=$dir_logs/${Plantname}_\$(date '+%Y%m').log"
 		echo "$dir_program/SBFspot $p_monthdata -cfg$dir_config/$sbfspotcfg \$1 \$2 \$3 \$4 \$5 &>>\$log"
 	} >"$monthdata"
-	
+
 	chmod +x "$monthdata"
 
 	#
 	# Dry run SBFspot for the first time
 	#
-	
+
 	echo "Running SBFspot..."
 	local firstrun
 	firstrun=$("$dir_program"/SBFspot -v -ad0 -am0 -ae0 -sp0 -nocsv -nosql -finq)
 	#firstrun=$(<"$userhome/firstrun_multigate") # For testing purpose - don't have multigate
 	rc=$?
-	
+
 	if [ "$rc" -ne 0 ]; then
 		echo "$firstrun"
 		whiptail --msgbox "Running SBFspot failed\nAborting Installation" 0 0
@@ -951,7 +951,7 @@ do_install()
 	#
 	# Create/Update cron jobs
 	#
-	
+
 	printf "Creating cron jobs...\n"
 
 	# Get current cron jobs without SBFspot related ones
@@ -959,17 +959,17 @@ do_install()
 
 	# delete all jobs
 	crontab -r -u "$username" 2>/dev/null
-	
+
 	cron="$cron"$'\n'"## SBFspot"
 	# Run every 5 mins from 06:00:00 - 22:59:59
 	cron="$cron"$'\n'"$t_daydata $dir_program/daydata"
 	# Run once a day at 05:55:00
 	cron="$cron"$'\n'"$t_monthdata $dir_program/monthdata"
-	
+
 	echo "$cron" | crontab -u "$username" -
 
 	crontab -u "$username" -l
-	
+
 	# Check for Multigate
 	if [ "$inv_connectiontype" = "Speedwire" ]; then
 		if [[ "$firstrun" =~ "Multigate found" ]]; then
@@ -986,22 +986,22 @@ do_install()
 		netid=$(echo "$firstrun"|awk '/^SMA netID=/ { print $2 }' FS='=')
 		echo "NetID=$netid"
 	fi
-	
+
 
 	# When PVoutput upload enabled, install daemon
 	#
-	
+
 	if [ "$pvo_enabled" -eq 1 ]; then
 		echo "PVO enabled, configuring upload daemon..."
-		
+
 		devserials=$(echo "$firstrun"|awk '/^Serial number:/ { print $2 }' FS=': *')
 		echo "Device Serial(s): $devserials"
 
 		local crc_src
 		local crc_dst
-		
+
 		crc_src=($(sha512sum -b "$tmp_dir/SBFspotUploadDaemon"))
-		
+
 		if [ -f "$dir_program./SBFspotUploadDaemon" ]; then
 			crc_dst=($(sha512sum -b "$dir_program/SBFspotUploadDaemon"))
 
@@ -1024,12 +1024,12 @@ do_install()
 
 		echo "Copying daemon..."
 		cp "$tmp_dir/SBFspotUploadDaemon" .
-		
+
 		install_pkg "curl"
-		
+
 		local serials
 		local sids
-		
+
 		# If PVoutput_SID is already in SerialNr:SID form, split it
 		if echo "$PVoutput_SID" | grep -q ":"; then
 			local serialsid=($(echo "$PVoutput_SID" | tr ',:' ' '))
@@ -1042,7 +1042,7 @@ do_install()
 			sids=($(echo "$PVoutput_SID" | tr ',' ' '))
 			serials=($devserials)
 		fi
-		
+
 		local dup_sid
 		dup_sid=$(printf '%s\n' "${sids[@]}"|awk '!($0 in seen){seen[$0];next} 1')
 		if [ -n "$dup_sid" ]; then
@@ -1061,7 +1061,7 @@ do_install()
 
 		check_pvo_key_sid "$PVoutput_Key" "${sids[@]}"
 		rc=$?
-		
+
 		if [ "$rc" -eq 1 ]; then # check_pvo_key_sid test failed
 			whiptail --msgbox "SBFspotUpload installation failed:\nInvalid key/sid pair" 0 0
 			return 1 # show PVO config menu
@@ -1082,9 +1082,9 @@ do_install()
 				((i++))
 			done
 		fi
-		
+
 		echo "S/N:SID mapping=$pvo_serial_sid"
-		
+
 		printf "Configuring SBFspotUpload... "
 
 		{
@@ -1136,9 +1136,9 @@ do_install()
 
 			echo "# End of Config"
 		} >"$sbfspotuploadcfg"
-		
+
 		printf "Done\n"
-		
+
 		# Autostart SBFspotUploadDaemon
 		# In the past we used rc.local to start SBFspotUploadDaemon
 		# Remove all references to SBFspotUploadDaemon
@@ -1163,7 +1163,7 @@ do_install()
 			echo "[Install]"
 			echo "WantedBy=multi-user.target"
 		} >"$dir_program/SBFspotUpload.service"
-		
+
 		if [ -f "/tmp/SBFspotUploadDaemon.out" ]; then
 			rm "/tmp/SBFspotUploadDaemon.out"
 		fi
@@ -1172,10 +1172,10 @@ do_install()
 		systemctl enable "$dir_program/SBFspotUpload.service"
 		systemctl start SBFspotUpload
 	fi
-	
+
 	echo "Removing temporary files..."
 	cleanup "all"
-	
+
 	echo "Installation complete"
 
 	return 0
@@ -1198,7 +1198,7 @@ check_pvo_key_sid()
 			return 1
 		fi
 	done
-	
+
 	return 0
 }
 
@@ -1218,7 +1218,7 @@ do_pvo_config()
 			"2 System ID (SID)    : " "$tmp_PVoutput_SID" \
 			"3 API Key            : " "$tmp_PVoutput_Key" \
 			3>&1 1>&2 2>&3)
-		
+
 		rc=$?
 
 		if [ $rc -eq $wt_esc ]; then # ESC
@@ -1254,13 +1254,13 @@ get_input()
 	# $3 Title
 	local tmp_input
 	local rc=0
-	
+
 	if [ -z "$3" ]; then
 		tmp_input=$(whiptail --inputbox "$1" 0 0 "$2" 3>&1 1>&2 2>&3)
 	else
 		tmp_input=$(whiptail --inputbox --title "$3" "$1" 0 0 "$2" 3>&1 1>&2 2>&3)
 	fi
-	
+
 	rc=$?
 
 	if [ "$rc" -eq 0 ]; then
@@ -1268,7 +1268,7 @@ get_input()
 	else
 		echo "$2"			# ESC
 	fi
-	
+
 	return $rc
 }
 
@@ -1301,7 +1301,7 @@ get_number()
 			echo "$curval"		# ESC
 			return $rc
 		fi
-		
+
 	done
 }
 
@@ -1311,6 +1311,7 @@ do_location()
 	local tmp_Location="$Latitude/$Longitude"
 	local tmp_Locale="$Locale"
 	local tmp_DecimalPoint="$DecimalPoint"
+	local tmp_Timezone="$Timezone"
 
 	while true; do
 		local opt
@@ -1323,14 +1324,21 @@ do_location()
 			"3 Locale         : " "$tmp_Locale" \
 			"4 Decimal Symbol : " "$tmp_DecimalPoint" \
 			3>&1 1>&2 2>&3)
-		
+
 		rc=$?
-		
+
 		if [ $rc -eq $wt_esc ]; then # ESC
 			return
 		elif [ $rc -eq 0 ]; then # Select/Enter
 			case "$opt" in
-				1\ *)	whiptail --msgbox "Timezone can't be changed here.\nRun raspi-config to perform this action." 0 0 ;;
+#				1\ *)	whiptail --msgbox "Timezone can't be changed here.\nRun raspi-config to perform this action." 0 0 ;;
+				1\ *) 	tmp_Timezone=$(get_input "Timezone")
+
+						rc=$?
+						if [ $rc -eq $wt_esc ]; then	# ESC
+							tmp_Timezone="$Timezone"
+						fi;;
+
 				2\ *)	tmp_Location=$(get_input "Refer to http://itouchmap.com/latlong.html\nto get the exact location\n\nEnter latitude/longitude for your location" "$tmp_Location" "Location")
 						rc=$?
 						if [ $rc -eq $wt_esc ]; then # ESC
@@ -1354,6 +1362,7 @@ do_location()
 			Longitude=$2
 			Locale="$Locale"
 			DecimalPoint="$DecimalPoint"
+			Timezone="$tmp_Timezone"
 			cfg_dirty=1
 			return
 		fi
@@ -1381,7 +1390,7 @@ menu_directories()
 			"3 Program Files :" "$tmp_dir_program" \
 			"4 Config Files  :" "$tmp_dir_config" \
 			3>&1 1>&2 2>&3)
-		
+
 		rc=$?
 
 		if [ $rc -eq $wt_esc ]; then # ESC
@@ -1425,7 +1434,7 @@ get_option()
 
 	local rc=0
 	local line
-	
+
 	# Select default option (curval)
 	options=$(echo "$options" | \
 	while read line; do
@@ -1437,7 +1446,7 @@ get_option()
 
 	local values
 	values=$(echo "$options" | tr '\t' '~' | tr '\n' '~')
-	IFS='~'	
+	IFS='~'
 
 	local opt
 	if [ "$listtype" = "check" ]; then
@@ -1455,7 +1464,7 @@ get_option()
 	else # ESC/Cancel
 		echo "$curval"
 	fi
-	
+
 	return $rc
 }
 
@@ -1496,7 +1505,7 @@ do_adv_csv()
 				"1 Export to CSV               " "$(on_off_status "$tmp_CSV_Export")" \
 				3>&1 1>&2 2>&3)
 		fi
-		
+
 		rc=$?
 
 		if [ $rc -eq $wt_esc ]; then # ESC
@@ -1540,7 +1549,7 @@ do_adv_csv()
 			cfg_dirty=1
 			return
 		fi
-	done	
+	done
 }
 
 do_sync_time()
@@ -1566,7 +1575,7 @@ do_sync_time()
 				"1 Sync Time      " "$(sync_time_status "$tmp_SynchTime")" \
 				3>&1 1>&2 2>&3)
 		fi
-		
+
 		rc=$?
 
 		if [ $rc -eq $wt_esc ]; then # ESC
@@ -1587,7 +1596,7 @@ do_sync_time()
 			cfg_dirty=1
 			return
 		fi
-	done	
+	done
 }
 
 sync_time_status()
@@ -1631,7 +1640,7 @@ do_advanced()
 			"3 Time       " "Advanced Time settings" \
 			"4 Misc       " "Miscellaneous settings" \
 			3>&1 1>&2 2>&3)
-			
+
 		rc=$?
 		if [ $rc -eq $wt_esc ]; then # ESC
 			return
@@ -1658,7 +1667,7 @@ do_plantname()
 	local tmp_Plantname="$Plantname"
 	tmp_Plantname=$(get_input "Enter a name for your system (no spaces)" "$tmp_Plantname" "Plant Name")
 	rc=$?
-	
+
 	if [ $rc -eq 0 ]; then # OK
 		Plantname=$(echo "$tmp_Plantname" | tr ' ' '_')
 		cfg_dirty=1
@@ -1694,10 +1703,10 @@ install_pkg()
 {
 	local package="$1"
 	local rc=0
-	
+
 	dpkg -s "$package" &>/dev/null
 	rc=$?
-	
+
 	if [ "$rc" -ne 0 ]; then	# Package not installed
 		apt-get -y install "$package"
 		dpkg -s "$package" &>/dev/null
@@ -1708,7 +1717,7 @@ install_pkg()
 			exit 255	# Installation failed
 		fi
 	fi
-	
+
 	return 0	# OK, package installed
 }
 
@@ -1717,7 +1726,7 @@ is_installed()
 	local package="$1"
 	local mandatory="$2"
 	local rc=0
-	
+
 	printf "Checking %s... " "$package"
 
 	dpkg -s "$package" &>/dev/null
@@ -1764,7 +1773,7 @@ do_preflightcheck()
 	fi
 
 	is_installed "whiptail" true
-	
+
 	# Cleanup the mess from failed installations...
 	cleanup
 }
@@ -1792,11 +1801,11 @@ do_preinstallcheck()
 			return 1
 		fi
 	fi
-		
+
 	# TODO: Add other checks
-	
+
 	printf "Done\n"
-	
+
 	return 0 #OK
 }
 
@@ -1900,7 +1909,7 @@ if [ "$rc" -eq 0 ]; then
 			3>&1 1>&2 2>&3)
 
 		rc=$?
-		
+
 		if [ $rc -eq $wt_esc ]; then # ESC
 			do_finish
 		elif [ $rc -eq 0 ]; then # Select/Enter
