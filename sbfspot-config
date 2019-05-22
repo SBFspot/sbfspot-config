@@ -9,8 +9,8 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.0.12
-# (c) 2017-2018, SBF
+# sbfspot-config V1.0.13
+# (c) 2017-2019, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian)
 #
@@ -25,7 +25,7 @@
 
 #set -uo pipefail
 
-readonly toolversion="1.0.12"
+readonly toolversion="1.0.13"
 readonly appname="SBFspot Configuration Tool V$toolversion"
 readonly appshortname="sbfspot-config"
 
@@ -1002,7 +1002,7 @@ do_install()
 		
 		crc_src=($(sha512sum -b "$tmp_dir/SBFspotUploadDaemon"))
 		
-		if [ -f "$dir_program./SBFspotUploadDaemon" ]; then
+		if [ -f "$dir_program/SBFspotUploadDaemon" ]; then
 			crc_dst=($(sha512sum -b "$dir_program/SBFspotUploadDaemon"))
 
 			# Stop & replace daemon only if changed
