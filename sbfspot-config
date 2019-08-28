@@ -9,7 +9,7 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.0.13
+# sbfspot-config V1.0.14
 # (c) 2017-2019, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian)
@@ -25,7 +25,7 @@
 
 #set -uo pipefail
 
-readonly toolversion="1.0.13"
+readonly toolversion="1.0.14"
 readonly appname="SBFspot Configuration Tool V$toolversion"
 readonly appshortname="sbfspot-config"
 
@@ -1063,7 +1063,7 @@ do_install()
 		rc=$?
 		
 		if [ "$rc" -eq 1 ]; then # check_pvo_key_sid test failed
-			whiptail --msgbox "SBFspotUpload installation failed:\nInvalid key/sid pair" 0 0
+			whiptail --msgbox "SBFspotUpload installation failed:\nProblem with PVOutput API key or SystemID" 0 0
 			return 1 # show PVO config menu
 		fi
 
@@ -1194,7 +1194,9 @@ check_pvo_key_sid()
 		# Unauthorized 401: Invalid API Key
 		# Unauthorized 401: Invalid System ID
 		# Unauthorized 401: Missing, invalid or inactive api key information (X-Pvoutput-Apikey)
+		# Unauthorized 401: Disabled API Key
 		if echo "$curl_result" | grep -q "Unauthorized 401"; then
+			echo "$curl_result"
 			return 1
 		fi
 	done
