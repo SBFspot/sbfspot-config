@@ -785,7 +785,7 @@ do_install()
 		install_pkg "$dbtype-client"
 
 		echo "Checking database..."
-		$dbtype -h $SQL_Hostname -u $SQL_Username -p$SQL_Password $SQL_Database -B --disable-column-names -e 'SELECT * FROM SBFspot.Config WHERE `Key`="SchemaVersion";' &>"$tmp_dir/sqldb.test"
+		$dbtype -h $SQL_Hostname -u $SQL_Username -p$SQL_Password $SQL_Database -B --disable-column-names -e 'SELECT * FROM '$SQL_Database'.Config WHERE `Key`="SchemaVersion";' &>"$tmp_dir/sqldb.test"
 
 		# Check for errors
 		local sql_error=$(grep -i "ERROR [^:]*: " $tmp_dir/sqldb.test)
