@@ -9,7 +9,7 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.0.14
+# sbfspot-config V1.0.15
 # (c) 2017-2019, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian)
@@ -25,7 +25,7 @@
 
 #set -uo pipefail
 
-readonly toolversion="1.0.14"
+readonly toolversion="1.0.15"
 readonly appname="SBFspot Configuration Tool V$toolversion"
 readonly appshortname="sbfspot-config"
 
@@ -1190,7 +1190,7 @@ check_pvo_key_sid()
 	for sid in "${sids[@]}"; do
 		echo "Checking SID:$sid"
 		local curl_result
-		curl_result=$(curl -s -H "X-Pvoutput-Apikey:$apikey" -H "X-Pvoutput-SystemId:$sid" http://pvoutput.org/service/r2/getsystem.jsp)
+		curl_result=$(curl -s -H "X-Pvoutput-Apikey:$apikey" -H "X-Pvoutput-SystemId:$sid" https://pvoutput.org/service/r2/getsystem.jsp)
 		# Unauthorized 401: Invalid API Key
 		# Unauthorized 401: Invalid System ID
 		# Unauthorized 401: Missing, invalid or inactive api key information (X-Pvoutput-Apikey)
@@ -1351,9 +1351,7 @@ do_location()
 			esac
 		elif [ $rc -eq 1 ]; then # OK
 			local IFS=/
-			set $tmp_Location
-			Latitude=$1
-			Longitude=$2
+			read Latitude Longitude <<< $tmp_Location
 			Locale="$Locale"
 			DecimalPoint="$DecimalPoint"
 			cfg_dirty=1
