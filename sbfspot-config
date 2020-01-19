@@ -955,7 +955,7 @@ do_install()
 	printf "Creating cron jobs...\n"
 
 	# Get current cron jobs without SBFspot related ones
-	cron=$(crontab -l -u "$username" 2>/dev/null|grep -Eqv "(^$|SBFspot|daydata|monthdata)")
+	cron=$(crontab -l -u "$username" 2>/dev/null|grep -Ev "(^$|SBFspot|daydata|monthdata)")
 
 	# delete all jobs
 	crontab -r -u "$username" 2>/dev/null
