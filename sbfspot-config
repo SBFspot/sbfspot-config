@@ -9,8 +9,8 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.0.15
-# (c) 2017-2019, SBF
+# sbfspot-config V1.1.0
+# (c) 2017-2020, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian)
 #
@@ -23,16 +23,64 @@
 # To install a specific SBFspot version (e.g. 3.5.0):
 # curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
 
+# Changes:
+# V1.1.0 (23-MAY-2020)
+#	- Fix: #7 Existing config file overwritten and options missing
+#	- Fix: #10 tar file names contain debian codename to support different raspbian versions (as from SBFspot 3.6.0)
+#	- Fix: installation fails when config file is not in default location and existing config is used
+#	- Fix: when using existing config with MariaDB tool is switching to SQLite
+#	- Fix: daemon fails to start when config file is not in default location
+#	- Fix: Show "Installation failed" when daemon fails to start
+#	- Add: MQTT support (SBFspot 3.6.0 and higher)
+#	- Fix: #15 crontab deleted
+#	- Fix: #17 missing option for changed inverter password
+#	- Chg: By default, disable CSV export when SQL DB is used
+#	- Add: Run apt-get update if last update was more than one week ago (https://github.com/SBFspot/SBFspot/issues/351)
+#	- Chg: Get events every 5 mins instead of once a day
+#
+# V1.0.15 (20-OCT-2019)
+#	- Fix: #12 Lat/Long Configuration Error when starting with '-' character
+#
+# V1.0.14 (28-AUG-2019)
+#	- Fix: Show PVO Error Message
+#	- Fix: #4 Change Checking Database line to use variable
+#
+# V1.0.13 (22-MAY-2019)
+#	- Fix: #6 Upload daemon not updated
+#
+# V1.0.12 (03-DEC-2018)
+#	- Fix: SBFspot #263 Difficult to enter lat/lon for location
+#	- Fix: Configuration error when using non-default smadata folder
+#
+# V1.0.11 (07-NOV-2018)
+#	- Fix: SBFspot.db not created in /home/pi/smadata
+#
+# V1.0.10 (01-NOV-2018)
+#	- Fix: No serial numbers found when PVO enabled
+#
+# V1.0.9 (23-OCT-2018)
+#	- Fix: Case sensitive table names (MySQL/MariaDB)
+#
+# V1.0.8 (01-OCT-2018)
+#	- Fix: #4
+#	- Precompiled SBFspot does not run on Jessie
+#
+# V1.0.7 (27-SEP-2018)
+#	- First release
+#
+# V1.0.0 (09-FEB-2018)
+#	- Initial version
+
 #set -uo pipefail
 
-readonly toolversion="1.0.15"
+readonly toolversion="1.1.0"
 readonly appname="SBFspot Configuration Tool V$toolversion"
 readonly appshortname="sbfspot-config"
 
 readonly minimum_sbfspot_version="3.5.0"
 
 # default SBFspot parameters used in cron jobs
-readonly p_daydata="-v -ad1 -am0 -ae0"
+readonly p_daydata="-v -ad1 -am0 -ae1"
 readonly p_monthdata="-v -sp0 -ad0 -am1 -ae1 -finq"
 
 # timings used in cron jobs
@@ -58,6 +106,20 @@ readonly wt_esc=255
 readonly cfg_new="Create new config"
 readonly cfg_saved="Use last saved settings"
 
+# MQTT constants
+# JSON
+readonly mqtt_json_itemdelimiter='comma'
+readonly mqtt_json_itemformat='"{key}": {value}'
+readonly mqtt_json_publisherargs='-h {host} -t {topic} -m "{{message}}"'
+# XML
+readonly mqtt_xml_itemdelimiter='none'
+readonly mqtt_xml_itemformat='<item name="{key}" value="{value}" />'
+readonly mqtt_xml_publisherargs='-h {host} -t {topic} -m "<mqtt_message>{message}</mqtt_message>"'
+# TEXT
+readonly mqtt_text_itemdelimiter='semicolon'
+readonly mqtt_text_itemformat='{key}:{value}'
+readonly mqtt_text_publisherargs='-h {host} -t {topic} -m "{message}"'
+
 create_defaults()
 {
 	# General Variables
@@ -76,7 +138,7 @@ create_defaults()
 	MIS_Enabled="0"
 	BTConnectRetries="10"
 	
-	CSV_Export="1"
+	CSV_Export="0"
 	OutputPath="$dir_smadata/%Y"
 	OutputPathEvents="$dir_smadata/%Y/Events"
 	CSV_ExtendedHeader="1"
@@ -110,7 +172,7 @@ create_defaults()
 	SynchTimeLow="60"
 	SynchTimeHigh="3600"
 	SunRSOffset="900"
-	
+
 	# SBFspotUpload.cfg Variables
 	PVoutput_SID=""
 	PVoutput_Key=""
@@ -122,12 +184,26 @@ create_defaults()
 		inv_address="$IP_Address"
 	fi
 
-	if [ "$sql_dbtype" = "NoSQL" ] || [ -z "$PVoutput_Key" ]; then
-		pvo_enabled="0"
+	mqtt_msgformat='json'
+	MQTT_Publisher='/usr/bin/mosquitto_pub'
+	MQTT_Host=''	#'test.mosquitto.org'
+	MQTT_Topic='sbfspot_{serial}'
+	MQTT_Data='Timestamp,SunRise,SunSet,InvSerial,InvName,InvTime,InvStatus,InvTemperature,InvGridRelay,EToday,ETotal,PACTot,UDC1,UDC2,IDC1,IDC2,PDC1,PDC2'
+
+	if [ "$mqtt_msgformat" = "json" ]; then
+		MQTT_ItemDelimiter="$mqtt_json_itemdelimiter"
+		MQTT_ItemFormat="$mqtt_json_itemformat"
+		MQTT_PublisherArgs="$mqtt_json_publisherargs"
+	elif [ "$mqtt_msgformat" = "xml" ]; then
+		MQTT_ItemDelimiter="$mqtt_xml_itemdelimiter"
+		MQTT_ItemFormat="$mqtt_xml_itemformat"
+		MQTT_PublisherArgs="$mqtt_xml_publisherargs"
 	else
-		pvo_enabled="1"
+		MQTT_ItemDelimiter="$mqtt_text_itemdelimiter"
+		MQTT_ItemFormat="$mqtt_text_itemformat"
+		MQTT_PublisherArgs="$mqtt_text_publisherargs"
 	fi
-	
+
 	cfg_dirty=1
 }
 
@@ -147,14 +223,7 @@ read_defaults()
 		inv_address="$IP_Address"
 	fi
 
-	if [ "$sql_dbtype" = "NoSQL" ] || [ -z "$PVoutput_Key" ]; then
-		pvo_enabled="0"
-	else
-		pvo_enabled="1"
-	fi
-
 	printf "Done\n"
-echo "read_defaults:$dir_smadata"
 }
 
 save_defaults()
@@ -214,6 +283,18 @@ save_defaults()
 		
 		echo "PVoutput_SID=$PVoutput_SID"
 		echo "PVoutput_Key=$PVoutput_Key"
+		
+		echo "MQTT_Publisher=$MQTT_Publisher"
+		echo "MQTT_Host=$MQTT_Host"
+		echo "MQTT_Topic='$MQTT_Topic'"
+		echo "MQTT_Data=$MQTT_Data"
+		echo "MQTT_ItemDelimiter=$MQTT_ItemDelimiter"
+		echo "MQTT_ItemFormat='$MQTT_ItemFormat'"
+		echo "MQTT_PublisherArgs='$MQTT_PublisherArgs'"
+		
+		# Not a cfg variable
+		echo "mqtt_msgformat=$mqtt_msgformat"
+		
 	} >"$defaultsfile"
 	
 	cfg_dirty=0
@@ -221,11 +302,13 @@ save_defaults()
 	printf "Done\n"
 }
 
+# Search for existing SBFspot.cfg files
 search_config()
 {
 	local options
-	local cfglist=$(find / -name SBFspot.cfg 2>/dev/null)
-	if [ ! -z "$cfglist" ]; then
+	local cfglist
+	cfglist=$(find / -name SBFspot.cfg 2>/dev/null)
+	if [ -n "$cfglist" ]; then
 		options=$(echo "$cfglist" | \
 		while read line; do
 			printf '%s\t \toff\n' "$line"
@@ -279,16 +362,24 @@ read_variables()
 		SQL_Database=""
 		
 		# Read .cfg files
-		local tempcfg="$tmppath/cfg.tmp"
-		grep -Po "^[aA-zZ_]*=[aA-zZ0-9/%.:-]*" "$cfg">"$tempcfg"
 		echo "Reading settings from $cfg"
+		local tempcfg="$tmppath/cfg.tmp"
+		grep -Pv "^(MQTT_|#)" "$cfg" | grep -Po "^[aA-zZ_]*=[aA-zZ0-9/%.:-]*">"$tempcfg"
+		
+		# Surround MQTT_ values with '' to allow special characters like {,"}
+		while IFS='=' read -ra keyvalue; do
+			if [ -n "${keyvalue[0]}" ]; then
+				echo "${keyvalue[0]}='${keyvalue[1]}'">>"$tempcfg"
+			fi;
+		done <<< $(grep -Po "^MQTT_[aA-zZ_]*=[\" {}aA-zZ0-9/%.,;:-]*" "$cfg")
+
 		source "$tempcfg"
+
 		local cfg2
 		cfg2="$(dirname "$cfg")/SBFspotUpload.cfg"
 		if [ -f "$cfg2" ]; then
-			#grep -Po "^PVoutput_(SID|Key)=[aA-zZ0-9:,]*" "$cfg2">"$tempcfg"
-			grep -Po "^[aA-zZ_]*=[aA-zZ0-9/%.:-]*" "$cfg2">"$tempcfg"
 			echo "Reading settings from $cfg2"
+			grep -Po "^[aA-zZ_]*=[aA-zZ0-9/%.:-]*" "$cfg2">"$tempcfg"
 			source "$tempcfg"
 		fi
 		DateTimeFormat="$DateFormat $TimeFormat"
@@ -297,7 +388,7 @@ read_variables()
 		dir_smadata="$userhome/smadata"
 		dir_config="$(dirname "$cfg")"
 
-		if [ ! -z ${LogDir+x} ]; then
+		if [ -n "${LogDir+x}" ]; then
 			dir_logs="$LogDir"
 		fi
 
@@ -309,14 +400,25 @@ read_variables()
 			inv_address="$IP_Address"
 		fi
 		
+		# Get database type -> default SQLite
+		# No database defined -> NoSQL
 		if [ -z "$SQL_Database" ]; then
 			sql_dbtype="NoSQL"
 		fi
 		
-		if [ "$sql_dbtype" = "NoSQL" ] || [ -z "$PVoutput_Key" ]; then
-			pvo_enabled="0"
+		# if database host defined -> MariaDB
+		if [ -n "$SQL_Hostname" ]; then
+			sql_dbtype="MariaDB"
+		fi
+		
+		if [ "$MQTT_ItemDelimiter" = "$mqtt_json_itemdelimiter" ] && [ "$MQTT_ItemFormat" = "$mqtt_json_itemformat" ] && [ "$MQTT_PublisherArgs" = "$mqtt_json_publisherargs" ]; then
+			mqtt_msgformat='json'
+		elif [ "$MQTT_ItemDelimiter" = "$mqtt_xml_itemdelimiter" ] && [ "$MQTT_ItemFormat" = "$mqtt_xml_itemformat" ] && [ "$MQTT_PublisherArgs" = "$mqtt_xml_publisherargs" ]; then
+			mqtt_msgformat='xml'
+		elif [ "$MQTT_ItemDelimiter" = "$mqtt_text_itemdelimiter" ] && [ "$MQTT_ItemFormat" = "$mqtt_text_itemformat" ] && [ "$MQTT_PublisherArgs" = "$mqtt_text_publisherargs" ]; then
+			mqtt_msgformat='text'
 		else
-			pvo_enabled="1"
+			mqtt_msgformat='custom'
 		fi
 	fi
 	
@@ -386,12 +488,16 @@ get_releases()
 		url="${url: : -1}"
 	fi
 
+	# download releases page from Github
 	wget -qNP "$tmppath" "$url"
 	
 	if [ -f "$tmppath/releases" ]; then
-		local rlist=($(grep -Po "(\d+\.)(\d+\.)(\d)/.*\.gz" "$tmppath/releases"))
+		local rlist
+		# Get available versions for codename (stretch/buster/...)
+		rlist=($(grep -Po "(\d+\.)(\d+\.)(\d)/.*\-$lsb_codename\.tar\.gz" "$tmppath/releases"))
 		
-		local min_version_value=$(vvalue $minimum_sbfspot_version)
+		local min_version_value
+		min_version_value=$(vvalue $minimum_sbfspot_version)
 		
 		for (( i=0; i<${#rlist[@]}; i++ )); do
 			local version=$(echo "${rlist[$i]}"|awk '/$/ { print $1 }' FS='/')
@@ -552,9 +658,10 @@ do_db_config()
 	local tmp_SQL_Password="$SQL_Password"
 
 	local db_choice="$sql_dbtype"
+	local tmp_CSV_Export="$CSV_Export"
 	local rc=0
 	
-	db_choice=$(get_option $'SQLite\tRecommended\nMySQL\tConnect to MySQL/MariaDB server\nMariaDB\tConnect to MySQL/MariaDB server\nNoSQL\tNo database - CSV only' "$db_choice" "Database Configuration")
+	db_choice=$(get_option $'SQLite\tRecommended\nMariaDB\tConnect to MySQL/MariaDB server\nNoSQL\tNo database - CSV only' "$db_choice" "Database Configuration")
 
 	rc=$?
 
@@ -565,6 +672,7 @@ do_db_config()
 		SQL_Hostname="$tmp_SQL_Hostname"
 		SQL_Username="$tmp_SQL_Username"
 		SQL_Password="$tmp_SQL_Password"
+		CSV_Export="$tmp_CSV_Export"
 		return
 	fi
 
@@ -579,19 +687,21 @@ do_db_config()
 		SQL_Hostname=""
 		SQL_Username=""
 		SQL_Password=""
+		CSV_Export="0"
 		whiptail --msgbox "SQLite has no configurable options." 0 0
 	fi
 
-	if [ "$db_choice" = "MySQL" ]; then
-		if [ "$sql_dbtype" != "MySQL" ]; then
-			sql_dbtype="MySQL"
-			SQL_Database="SBFspot"
-			SQL_Hostname="localhost"
-			SQL_Username="SBFspotUser"
-			SQL_Password="SBFspotPassword"
-		fi
-		do_mysql_config
-	fi
+#	if [ "$db_choice" = "MySQL" ]; then
+#		if [ "$sql_dbtype" != "MySQL" ]; then
+#			sql_dbtype="MySQL"
+#			SQL_Database="SBFspot"
+#			SQL_Hostname="localhost"
+#			SQL_Username="SBFspotUser"
+#			SQL_Password="SBFspotPassword"
+#			CSV_Export="0"
+#		fi
+#		do_mysql_config
+#	fi
 
 	if [ "$db_choice" = "MariaDB" ]; then
 		if [ "$sql_dbtype" != "MariaDB" ]; then
@@ -600,6 +710,7 @@ do_db_config()
 			SQL_Hostname="localhost"
 			SQL_Username="SBFspotUser"
 			SQL_Password="SBFspotPassword"
+			CSV_Export="0"
 		fi
 		do_mysql_config
 	fi
@@ -614,12 +725,6 @@ do_db_config()
 		whiptail --msgbox "SQL export disabled.\nOutput will be written to CSV files\nUpload to PVOutput disabled" 0 0
 	fi
 
-	if [ "$sql_dbtype" = "NoSQL" ] || [ -z "$PVoutput_Key" ]; then
-		pvo_enabled="0"
-	else
-		pvo_enabled="1"
-	fi
-echo "do_db_config:$SQL_Database"
 }
 
 do_mysql_config()
@@ -709,12 +814,7 @@ do_install()
 	mkdir -p "$tmp_dir"
 	cd "$tmp_dir"
 
-	local db="$dbtype"
-	if [ "$db" = "mariadb" ]; then
-		db="mysql"
-	fi
- 	
-	local targz="sbfspot-$db-arm-linux.tar.gz"
+	local targz="sbfspot-$dbtype-arm-linux-$lsb_codename.tar.gz"
 	echo "Downloading $url_releases/download/V$install_release/$targz"
 	wget -o"$tmp_dir/wget.txt" -NP "$tmp_dir" "$url_releases/download/V$install_release/$targz"
 	tar --overwrite -xvf "$targz">/dev/null
@@ -733,23 +833,22 @@ do_install()
 	chown -R "$username:$username" "$dir_logs"
 
 	mkdir -p "$dir_program"
-	cd "$dir_program"
 
 	printf "Copying files...\n"
 
-	cp "$tmp_dir/SBFspot" .
+	cp "$tmp_dir/SBFspot" "$dir_program"
 	chmod 755 SBFspot
 	
-	if [ "$dbtype" = "mysql" ] || [ "$dbtype" = "mariadb" ]; then
-		cp "$tmp_dir/CreateMySQLDB.sql" .
-		cp "$tmp_dir/CreateMySQLUser.sql" .
+	if [ "$dbtype" = "mariadb" ]; then
+		cp "$tmp_dir/CreateMySQLDB.sql" "$dir_program"
+		cp "$tmp_dir/CreateMySQLUser.sql" "$dir_program"
 		chmod 644 *.sql
 	fi
 	
-	cp "$tmp_dir/date_time_zonespec.csv" .
+	cp "$tmp_dir/date_time_zonespec.csv" "$dir_program"
 	chmod 644 date_time_zonespec.csv
 	
-	for file in "$tmp_dir/TagList"*".txt"; do cp "$file" .;done
+	for file in "$tmp_dir/TagList"*".txt"; do cp "$file" "$dir_program";done
 	chmod 644 TagList*
 	
 	# Setup SQLite db
@@ -781,7 +880,7 @@ do_install()
 	
 	# Setup MySQL/MariaDB
 	# User is responsible for creating SBFspot db
-	if [ "$dbtype" = "mysql" ] || [ "$dbtype" = "mariadb" ]; then
+	if [ "$dbtype" = "mariadb" ]; then
 		install_pkg "$dbtype-client"
 
 		echo "Checking database..."
@@ -797,7 +896,7 @@ do_install()
 		fi
 	fi
 
-	if [ "$dbtype" = "sqlite" ] || [ "$dbtype" = "mysql" ] || [ "$dbtype" = "mariadb" ]; then
+	if [ "$dbtype" = "sqlite" ] || [ "$dbtype" = "mariadb" ]; then
 		# No errors encountered, get schemaversion
 		local sv
 		read -r -a sv <<< $(grep -P "^SchemaVersion\s*\d*" $tmp_dir/sqldb.test)
@@ -807,8 +906,26 @@ do_install()
 		echo "Schema Version=$schemaversion"
 	fi
 
+	if [ "$mqtt_enabled" -eq 1 ]; then
+		if [[ "$MQTT_Publisher" == *"mosquitto_pub"* ]]; then
+			install_pkg "mosquitto-clients"
+		fi
+		
+		#
+		# Add other mqtt publishers
+		#
+	fi
+
 	mkdir -p "$dir_config"
 	cd "$dir_config"
+	
+	if [ -f "$sbfspotcfg" ]; then
+		printf "Saving existing %s... " "$sbfspotcfg"
+		local backup_cfg="$sbfspotcfg.$(date +%Y%m%d_%H%M%S)"
+		cp "$sbfspotcfg" "$backup_cfg"
+		chown "$username:$username" "$backup_cfg"
+		printf "Done\n"
+	fi
 	
 	printf "Configuring SBFspot... "
 
@@ -827,7 +944,7 @@ do_install()
 		echo "#                                                                               "
 		echo "#  DISCLAIMER:                                                                  "
 		echo "#  A user of SBFspot software acknowledges that he or she is receiving this     "
-		echo "#  software on an ""as is"" basis and the user is not relying on the accuracy   "
+		echo "#  software on an \"as is\" basis and the user is not relying on the accuracy   "
 		echo "#  or functionality of the software for any purpose. The user further           "
 		echo "#  acknowledges that any use of this software will be at his own risk           "
 		echo "#  and the copyright owner accepts no responsibility whatsoever arising from    "
@@ -835,66 +952,174 @@ do_install()
 		echo "#                                                                               "
 		echo "#    SMA and Speedwire are registered trademarks of SMA Solar Technology AG     "
 		echo "################################################################################"
-		echo "#"
+		echo ""
 		echo "# $sbfspotcfg - Created $(date) with $appshortname V$toolversion"
-		echo "# For detailed configuration info, refer to SBFspot.default.cfg"
-		echo "#"
+		echo ""
 
 		# Configure Bluetooth
 		if [ "$inv_connectiontype" = "Bluetooth" ]; then
+			echo "# SMA Inverter's Bluetooth address"
+			echo "# Windows: sbfspot -scan"
+			echo "# Linux  : hcitool scan"
 			echo "BTAddress=$BTAddress"
+			echo ""
+			echo "# MIS_Enabled (Multi Inverter Support: Default=0 Disabled)"
+			echo "# +------------+-------+-------------+"
+			echo "# | #Inverters | NetID | MIS_Enabled |"
+			echo "# +------------+-------+-------------+"
+			echo "# |      1     |   1   | Don't Care  |"
+			echo "# +------------+-------+-------------+"
+			echo "# |      1     |   >1  |      0      |"
+			echo "# +------------+-------+-------------+"
+			echo "# |      >1    |   >1  |      1      |"
+			echo "# +------------+-------+-------------+"
 			echo "MIS_Enabled=$MIS_Enabled"
+			echo ""
+			echo "# BTConnectRetries"
+			echo "# Number of Bluetooth Connection attempts (1-15; Default=10)"
 			echo "BTConnectRetries=$BTConnectRetries"
+			echo ""
 		fi
 		
 		# Configure Speedwire
 		if [ "$inv_connectiontype" = "Speedwire" ]; then
+			echo "# SMA Inverter's Speedwire IP address"
+			echo "# If IP_Address is not set or is 0.0.0.0 SBFspot will try to detect the speedwire inverter by broadcast"
+			echo "# If IP_Address is set to a valid IP, SBFspot will try to connect directly to that IP without broadcast detection"
+			echo "# Multiple IP addresses can be provided (comma separated)"
 			echo "IP_Address=$IP_Address"
+			echo ""
 		fi
 		
 		# Configure User Password
+		echo "# User password (default 0000)"
 		echo "Password=$Password"
+		echo ""
 
 		# Configure Plant Name
+		echo "# Plantname"
 		echo "Plantname=$Plantname"
+		echo ""
 		
+		# Configure where to store CSV files
+		echo "# OutputPath (Place to store CSV files)"
+		echo "# Windows: C:\Users\Public\SMAdata\%Y"
+		echo "# Linux  : /home/pi/smadata/%Y"
+		echo "# %Y %m and %d will be expanded to Year Month and Day"
 		echo "OutputPath=$OutputPath"
+		echo ""
+		
+		echo "# OutputPathEvents (Place to store CSV files for events)"
+		echo "# If omitted, OutputPath is used"
 		echo "OutputPathEvents=$OutputPathEvents"
-
-		# Configure CSV Export
-		echo "CSV_Export=$CSV_Export"
-		echo "CSV_ExtendedHeader=$CSV_ExtendedHeader"
-		echo "CSV_Header=$CSV_Header"
-		echo "CSV_SaveZeroPower=$CSV_SaveZeroPower"
-		echo "CSV_Delimiter=$CSV_Delimiter"
-		echo "CSV_Spot_TimeSource=$CSV_Spot_TimeSource"
-		echo "CSV_Spot_WebboxHeader=$CSV_Spot_WebboxHeader"
+		echo ""
 
 		# Configure Localization Info
+		echo "# Timezone"
+		echo "# Select the right timezone in date_time_zonespec.csv"
+		echo "# e.g. Timezone=Europe/Brussels"
 		echo "Timezone=$Timezone"
+		echo ""
+		echo "# Position of pv-plant http://itouchmap.com/latlong.html"
+		echo "# Example for Ukkel, Belgium"
 		echo "Latitude=$Latitude"
 		echo "Longitude=$Longitude"
+		echo ""
+		echo "# Locale"
+		echo "# Translate Entries in CSV files"
+		echo "# Supported locales: de-DE;en-US;fr-FR;nl-NL;es-ES;it-IT"
+		echo "# Default en-US"
 		echo "Locale=$Locale"
+		echo ""
+		echo "# DateTimeFormat (default %d/%m/%Y %H:%M:%S)"
+		echo "# For details see strftime() function"
+		echo "# http://www.cplusplus.com/reference/clibrary/ctime/strftime/"
 		echo "DateTimeFormat=$DateTimeFormat"
+		echo ""
+		echo "# DateFormat (default %d/%m/%Y)"
 		echo "DateFormat=$DateFormat"
+		echo ""
+		echo "# TimeFormat (default %H:%M:%S)"
 		echo "TimeFormat=$TimeFormat"
+		echo ""
+		echo "# DecimalPoint (comma/point default comma)"
 		echo "DecimalPoint=$DecimalPoint"
+		echo ""
 		
 		# Configure advanced settings
+		echo "# Calculate Missing SpotValues"
+		echo "# If set to 1, values not provided by inverter will be calculated"
+		echo "# eg: Pdc1 = Idc1 * Udc1"
 		echo "CalculateMissingSpotValues=$CalculateMissingSpotValues"
-
+		echo ""
+		echo "# SynchTime (0-30 - 0=disabled, 1=once a day (default), 7=once a week, 30=once a month)"
+		echo "# If set to non-zero value, the plant time is synchronised with local host time"
+		echo "# Some inverters don't have a real-time clock"
+		echo "SynchTime=$SynchTime"
+		echo ""
+		echo "# SynchTimeLow (1-120 - default 1)"
+		echo "# SynchTimeHigh (1200-3600 - default 3600)"
+		echo "# Plant time is adjusted to local host time when SynchTime=1 and"
+		echo "# time difference is between SynchTimeLow and SynchTimeHigh limits"
+		echo "SynchTimeLow=$SynchTimeLow"
+		echo "SynchTimeHigh=$SynchTimeHigh"
+		echo ""
+		echo "# SunRSOffset"
+		echo "# Offset to start before sunrise and end after sunset (0-3600 - default 900 seconds)"
+		echo "SunRSOffset=$SunRSOffset"
+		echo ""
+		
+		# Configure CSV Export
+		echo "# With CSV_* settings you can define the CSV file format"
+		echo ""
+		echo "# CSV_Export (default 1 = Enabled)"
+		echo "# Enables or disables the CSV Export functionality"
+		echo "CSV_Export=$CSV_Export"
+		echo ""
+		echo "# CSV_ExtendedHeader (default 1 = On)"
+		echo "# Enables or disables the SMA extended header info (8 lines)"
+		echo "# isep=;"
+		echo "# Version CSV1|Tool SBFspot|Linebreaks CR/LF|Delimiter semicolon|Decimalpoint comma|Precision 3"
+		echo "# etc..."
+		echo "# This is usefull for manual data upload to pvoutput.org"
+		echo "CSV_ExtendedHeader=$CSV_ExtendedHeader"
+		echo ""
+		echo "# CSV_Header (default 1 = On)"
+		echo "# Enables or disables the CSV data header info (1 line)"
+		echo "# dd/MM/yyyy HH:mm:ss;kWh;kW"
+		echo "# This is usefull for manual data upload to pvoutput.org"
+		echo "# If CSV_ExtendedHeader is enabled, CSV_Header is also enabled"
+		echo "CSV_Header=$CSV_Header"
+		echo ""
+		echo "# CSV_SaveZeroPower (default 1 = On)"
+		echo "# When enabled, daily csv files contain all data from 00:00 to 23:55"
+		echo "# This is usefull for manual data upload to pvoutput.org"
+		echo "CSV_SaveZeroPower=$CSV_SaveZeroPower"
+		echo ""
+		echo "# CSV_Delimiter (comma/semicolon default semicolon)"
+		echo "CSV_Delimiter=$CSV_Delimiter"
+		echo ""
+		echo "# CSV_Spot_TimeSource (Inverter|Computer default Inverter)"
+		echo "CSV_Spot_TimeSource=$CSV_Spot_TimeSource"
+		echo ""
+		echo "# CSV_Spot_WebboxHeader (Default 0 = Off)"
+		echo "# When enabled, use Webbox style header (DcMs.Watt[A];DcMs.Watt[B]...)"
+		echo "CSV_Spot_WebboxHeader=$CSV_Spot_WebboxHeader"
+		echo ""
+		
 		# Configure SQLite
 		if [ "$dbtype" = "sqlite" ]; then
 			echo "SQL_Database=$SQL_Database"
+			echo ""
 		fi
 
-		# Configure MySQL
-		if [ "$dbtype" = "mysql" ]; then
-			echo "SQL_Database=$SQL_Database"
-			echo "SQL_Hostname=$SQL_Hostname"
-			echo "SQL_Username=$SQL_Username"
-			echo "SQL_Password=$SQL_Password"
-		fi
+#		# Configure MySQL
+#		if [ "$dbtype" = "mysql" ]; then
+#			echo "SQL_Database=$SQL_Database"
+#			echo "SQL_Hostname=$SQL_Hostname"
+#			echo "SQL_Username=$SQL_Username"
+#			echo "SQL_Password=$SQL_Password"
+#		fi
 
 		# Configure MariaDB
 		if [ "$dbtype" = "mariadb" ]; then
@@ -902,6 +1127,85 @@ do_install()
 			echo "SQL_Hostname=$SQL_Hostname"
 			echo "SQL_Username=$SQL_Username"
 			echo "SQL_Password=$SQL_Password"
+			echo ""
+		fi
+
+		if [ "$mqtt_enabled" -eq 1 ]; then
+			echo "# Full path to mosquitto_pub executable"
+			echo "MQTT_Publisher=$MQTT_Publisher"
+			echo ""
+			echo "# IP address or DNS name of MQTT Broker"
+			echo "# Don't use test broker for production environments"
+			echo "#MQTT_Host=test.mosquitto.org"
+			echo "MQTT_Host=$MQTT_Host"
+			echo ""
+			echo "# Port (Optional)"
+			echo "#MQTT_Port=$MQTT_Port"
+			echo ""
+			echo "# Topic Name"
+			echo "# When using public broker like test.mosquitto.org make sure to define a unique topic name"
+			echo "# by appending the serial number of the inverter to avoid you receive data of another SBFspot user."
+			echo "MQTT_Topic=$MQTT_Topic"
+			echo ""
+			echo "# Format of message items to be sent"
+			echo "# JSON: MQTT_ItemFormat=\"{key}\": {value}"
+			echo "# TEXT: MQTT_ItemFormat={key}:{value}"
+			echo "# XML:  MQTT_ItemFormat=<item name=\"{key}\" value=\"{value}\" />"
+			echo "MQTT_ItemFormat=$MQTT_ItemFormat"
+			echo ""
+			echo "# MQTT_ItemDelimiter (none|blank|comma|semicolon default comma)"
+			echo "# JSON: MQTT_ItemDelimiter=comma"
+			echo "# TEXT: MQTT_ItemDelimiter=semicolon"
+			echo "# XML : MQTT_ItemDelimiter=none"
+			echo "MQTT_ItemDelimiter=$MQTT_ItemDelimiter"
+			echo ""
+			echo "# Mandatory arguments for mosquitto_pub executable"
+			echo "# JSON: MQTT_PublisherArgs=-h {host} -t {topic} -m \"{{message}}\""
+			echo "# TEXT: MQTT_PublisherArgs=-h {host} -t {topic} -m \"{message}\""
+			echo "# XML : MQTT_PublisherArgs=-h {host} -t {topic} -m \"<mqtt_message>{message}</mqtt_message>\""
+			echo "MQTT_PublisherArgs=$MQTT_PublisherArgs"
+			echo ""
+			echo "# Data to be published (comma delimited)"
+			echo "MQTT_Data=$MQTT_Data"
+			echo ""
+			echo "# Possible keywords are (if supported by your inverter):"
+			echo "# SBFspot Alias   Code                Description"
+			echo "# ======================================================================="
+			echo "# Timestamp                           Current date/time"
+			echo "# InvTime                             Inverter date/time"
+			echo "# SunRise                             Sunrise time"
+			echo "# SunSet                              Sunset time"
+			echo "# InvSerial                           Serial Number"
+			echo "# InvName         NameplateLocation   Device name"
+			echo "# InvClass        NameplateMainModel  Device class"
+			echo "# InvType         NameplateModel      Device type"
+			echo "# InvSwVer        NameplatePkgRev     Software package"
+			echo "# InvStatus       OperationHealth     Condition"
+			echo "# InvTemperature  CoolsysTmpNom       Operating condition temperature"
+			echo "# InvGridRelay    OperationGriSwStt   Grid relay/contactor"
+			echo "# ETotal          MeteringTotWhOut    Total yield"
+			echo "# EToday          MeteringDyWhOut     Day yield"
+			echo "# PACTot          GridMsTotW          Power"
+			echo "# PDC1/PDC2       DcMsWatt            DC power input String 1/2"
+			echo "# UDC1/UDC2       DcMsVol             DC voltage input String 1/2"
+			echo "# IDC1/IDC2       DcMsAmp             DC current input String 1/2"
+			echo "# OperTm          MeteringTotOpTms    Operating time"
+			echo "# FeedTm          MeteringTotFeedTms  Feed-in time"
+			echo "# PAC1            GridMsWphsA         Power L1"
+			echo "# PAC2            GridMsWphsB         Power L2"
+			echo "# PAC3            GridMsWphsC         Power L3"
+			echo "# UAC1            GridMsPhVphsA       Grid voltage phase L1"
+			echo "# UAC2            GridMsPhVphsB       Grid voltage phase L2"
+			echo "# UAC3            GridMsPhVphsC       Grid voltage phase L3"
+			echo "# IAC1            GridMsAphsA_1       Grid current phase L1"
+			echo "# IAC2            GridMsAphsB_1       Grid current phase L2"
+			echo "# IAC3            GridMsAphsC_1       Grid current phase L3"
+			echo "# GridFreq        GridMsHz            Grid frequency"
+			echo "# BatTmpVal       BatTmpVal           Battery temperature"
+			echo "# BatVol          BatVol              Battery voltage"
+			echo "# BatAmp          BatAmp              Battery current"
+			echo "# BatChaStt       BatChaStt           Current battery charge status"
+			echo ""
 		fi
 
 		echo "# End of Config"
@@ -909,13 +1213,16 @@ do_install()
 	
 	printf "Done\n"
 	
+	local mqtt_arg=""
+	[ "$mqtt_enabled" -eq 1 ] && mqtt_arg=" -mqtt"
+
 	# launch script for daydata (every 5 minutes)
 	local daydata="$dir_program/daydata"
 	{
 		echo "#!/bin/bash"
 		echo "#"
 		echo "log=$dir_logs/${Plantname}_\$(date '+%Y%m%d').log"
-		echo "$dir_program/SBFspot $p_daydata -cfg$dir_config/$sbfspotcfg \$1 \$2 \$3 \$4 \$5 &>>\$log"
+		echo "$dir_program/SBFspot $p_daydata$mqtt_arg -cfg$dir_config/$sbfspotcfg \$1 \$2 \$3 \$4 \$5 &>>\$log"
 	} >"$daydata"
 	
 	chmod +x "$daydata"
@@ -937,12 +1244,13 @@ do_install()
 	
 	echo "Running SBFspot..."
 	local firstrun
-	firstrun=$("$dir_program"/SBFspot -v -ad0 -am0 -ae0 -sp0 -nocsv -nosql -finq)
+	firstrun=$("$dir_program"/SBFspot -v -ad0 -am0 -ae0 -sp0 -nocsv -nosql -finq -cfg$dir_config/$sbfspotcfg)
 	#firstrun=$(<"$userhome/firstrun_multigate") # For testing purpose - don't have multigate
 	rc=$?
 	
 	if [ "$rc" -ne 0 ]; then
 		echo "$firstrun"
+		export NEWT_COLORS='root=white,red'
 		whiptail --msgbox "Running SBFspot failed\nAborting Installation" 0 0
 		echo "Installation aborted"
 		return 255
@@ -957,15 +1265,17 @@ do_install()
 	# Get current cron jobs without SBFspot related ones
 	cron=$(crontab -l -u "$username" 2>/dev/null|grep -Ev "(^$|SBFspot|daydata|monthdata)")
 
-	# delete all jobs
-	crontab -r -u "$username" 2>/dev/null
-	
+	# Add SBFspot jobs
 	cron="$cron"$'\n'"## SBFspot"
 	# Run every 5 mins from 06:00:00 - 22:59:59
 	cron="$cron"$'\n'"$t_daydata $dir_program/daydata"
 	# Run once a day at 05:55:00
 	cron="$cron"$'\n'"$t_monthdata $dir_program/monthdata"
 	
+	# Delete all jobs
+	crontab -r -u "$username" 2>/dev/null
+
+	# Re-create all jobs
 	echo "$cron" | crontab -u "$username" -
 
 	crontab -u "$username" -l
@@ -1006,7 +1316,7 @@ do_install()
 			crc_dst=($(sha512sum -b "$dir_program/SBFspotUploadDaemon"))
 
 			# Stop & replace daemon only if changed
-			if [ "$crc_src" != "$crc_dst" ];then
+			if [ "$crc_src" != "$crc_dst" ]; then
 				echo "Replacing daemon executable..."
 				# Try systemctl first
 				echo "Stopping daemon..."
@@ -1019,12 +1329,16 @@ do_install()
 				if [ -f "/tmp/SBFspotUploadDaemon.out" ]; then
 					rm "/tmp/SBFspotUploadDaemon.out"
 				fi
+				echo "Copying daemon..."
+				cp "$tmp_dir/SBFspotUploadDaemon" "$dir_program"
+			else
+				echo "Not replacing daemon (unchanged)"
 			fi
+		else
+			echo "Copying daemon..."
+			cp "$tmp_dir/SBFspotUploadDaemon" "$dir_program"
 		fi
 
-		echo "Copying daemon..."
-		cp "$tmp_dir/SBFspotUploadDaemon" .
-		
 		install_pkg "curl"
 		
 		local serials
@@ -1085,6 +1399,14 @@ do_install()
 		
 		echo "S/N:SID mapping=$pvo_serial_sid"
 		
+		if [ -f "$sbfspotuploadcfg" ]; then
+			printf "Saving existing $sbfspotuploadcfg... "
+			local backup_cfg="$sbfspotuploadcfg.$(date +%Y%m%d_%H%M%S)"
+			cp "$sbfspotuploadcfg" "$backup_cfg"
+			chown "$username:$username" "$backup_cfg"
+			printf "Done\n"
+		fi
+		
 		printf "Configuring SBFspotUpload... "
 
 		{
@@ -1095,7 +1417,7 @@ do_install()
 			echo "#                                                                               "
 			echo "#  DISCLAIMER:                                                                  "
 			echo "#  A user of SBFspot software acknowledges that he or she is receiving this     "
-			echo "#  software on an ""as is"" basis and the user is not relying on the accuracy   "
+			echo "#  software on an \"as is\" basis and the user is not relying on the accuracy   "
 			echo "#  or functionality of the software for any purpose. The user further           "
 			echo "#  acknowledges that any use of this software will be at his own risk           "
 			echo "#  and the copyright owner accepts no responsibility whatsoever arising from    "
@@ -1118,13 +1440,13 @@ do_install()
 				echo "SQL_Database=$SQL_Database"
 			fi
 
-			# Configure MySQL
-			if [ "$dbtype" = "mysql" ]; then
-				echo "SQL_Database=$SQL_Database"
-				echo "SQL_Hostname=$SQL_Hostname"
-				echo "SQL_Username=$SQL_Username"
-				echo "SQL_Password=$SQL_Password"
-			fi
+#			# Configure MySQL
+#			if [ "$dbtype" = "mysql" ]; then
+#				echo "SQL_Database=$SQL_Database"
+#				echo "SQL_Hostname=$SQL_Hostname"
+#				echo "SQL_Username=$SQL_Username"
+#				echo "SQL_Password=$SQL_Password"
+#			fi
 
 			# Configure MariaDB
 			if [ "$dbtype" = "mariadb" ]; then
@@ -1157,7 +1479,7 @@ do_install()
 			echo "User=$username"
 			echo "Type=simple"
 			echo "TimeoutStopSec=10"
-			echo "ExecStart=$dir_program/SBFspotUploadDaemon"
+			echo "ExecStart=$dir_program/SBFspotUploadDaemon -c $dir_config/SBFspotUpload.cfg"
 			echo "Restart=on-success"
 			echo "RestartSec=10"
 			echo "[Install]"
@@ -1171,11 +1493,21 @@ do_install()
 		# Enable & start the service
 		systemctl enable "$dir_program/SBFspotUpload.service"
 		systemctl start SBFspotUpload
+		
+		# Wait for SBFspotUpload to start (and fail)
+		sleep 1
+		local daemon_status="$(systemctl status SBFspotUpload)"
+		if ! echo "$daemon_status" | grep -q "active (running)"; then
+			systemctl status SBFspotUpload
+			echo "Installation failed"
+			cleanup
+			return 2
+		fi
 	fi
-	
+
 	echo "Removing temporary files..."
 	cleanup "all"
-	
+
 	echo "Installation complete"
 
 	return 0
@@ -1206,19 +1538,23 @@ check_pvo_key_sid()
 
 do_pvo_config()
 {
+	# PVO upload is only available with SQL DB
+	if [ "$sql_dbtype" = "NoSQL" ]; then
+		whiptail --msgbox "PVoutput upload is not possible without SQL DB" 0 0
+		return
+	fi
+
 	# backup current settings
 	local tmp_PVoutput_SID="$PVoutput_SID"
 	local tmp_PVoutput_Key="$PVoutput_Key"
-	local tmp_pvo_enabled="$pvo_enabled"
 
 	local rc=0
 	local opt
 
 	while true; do
 		opt=$(whiptail --title "PVOutput Configuration" --menu "" 0 70 0 --cancel-button "OK" --ok-button "Select" \
-			"1 Upload to PVOutput : " $(on_off_status "$tmp_pvo_enabled") \
-			"2 System ID (SID)    : " "$tmp_PVoutput_SID" \
-			"3 API Key            : " "$tmp_PVoutput_Key" \
+			"1 System ID (SID)    : " "$tmp_PVoutput_SID" \
+			"2 API Key            : " "$tmp_PVoutput_Key" \
 			3>&1 1>&2 2>&3)
 		
 		rc=$?
@@ -1227,13 +1563,10 @@ do_pvo_config()
 			return
 		elif [ $rc -eq 0 ]; then # Select/Enter
 			case "$opt" in
-				1\ *) tmp_pvo_enabled=$(get_option $'0\tOff\n1\tOn' "$tmp_pvo_enabled" "Upload to PVOutput" \
-						"Enables or disables the PVOutput Upload functionality\nThis requires a free PVOutput.org account\n") ;;
-				2\ *) tmp_PVoutput_SID=$(get_input "Enter PVOutput SystemID's (comma separated)" "$tmp_PVoutput_SID") ;;
-				3\ *) tmp_PVoutput_Key=$(get_input "Enter 40-character API Key (case sensitive)" "$tmp_PVoutput_Key") ;;
+				1\ *) tmp_PVoutput_SID=$(get_inputx "Enter PVOutput SystemID's (comma separated)" "$tmp_PVoutput_SID" "" "^($|[0-9]+|[0-9]+(,[0-9]+)*)$" "Invalid") ;;
+				2\ *) tmp_PVoutput_Key=$(get_inputx "Enter 40-character API Key" "$tmp_PVoutput_Key" "" "^([0-9a-f]{40})?$" "Invalid") ;;
 			esac
 		elif [ $rc -eq 1 ]; then # OK
-			pvo_enabled="$tmp_pvo_enabled"
 			PVoutput_SID="$tmp_PVoutput_SID"
 			PVoutput_Key="$tmp_PVoutput_Key"
 			cfg_dirty=1
@@ -1242,11 +1575,155 @@ do_pvo_config()
 	done
 }
 
-get_serials()
+do_mqtt_config()
 {
-	local output
-	output=$("$dir_program"/SBFspot -v -ad0 -am0 -ae0 -sp0 -nocsv -nosql -finq)
-	echo "$output"
+	# MQTT is supported as from SBFspot V3.6.0
+	# Do nothing if installing lower version
+	if [ "$mqtt_enabled" -lt 0 ]; then
+		whiptail --msgbox "MQTT is not supported in SBFspot V$version_wanted\nInstall V3.6.0 or higher" 0 0
+		return
+	fi
+	
+	# Copy current settings
+	local tmp_MQTT_Publisher="$MQTT_Publisher"
+	local tmp_MQTT_Host="$MQTT_Host"
+	local tmp_MQTT_Topic="$MQTT_Topic"
+	local tmp_MQTT_ItemFormat="$MQTT_ItemFormat"
+	local tmp_MQTT_ItemDelimiter="$MQTT_ItemDelimiter"
+	local tmp_MQTT_PublisherArgs="$MQTT_PublisherArgs"
+	local tmp_MQTT_Data="$MQTT_Data"
+	local tmp_mqtt_msgformat="$mqtt_msgformat"
+
+	local mqtt_host_menu_text
+	
+	local rc=0
+	local opt
+
+	while true; do
+		if [ -z "$tmp_MQTT_Host" ]; then
+			mqtt_host_menu_text='<To enable MQTT enter a broker address>'
+		else
+			mqtt_host_menu_text="$tmp_MQTT_Host"
+		fi
+		opt=$(whiptail --title "MQTT Configuration" --menu "" 0 70 0 --cancel-button "OK" --ok-button "Select" -- \
+			"1 Broker Host Address : " "$mqtt_host_menu_text" \
+			"2 Publisher           : " "$tmp_MQTT_Publisher" \
+			"3 Topic               : " "$tmp_MQTT_Topic" \
+			"4 Message Format      : " "$tmp_mqtt_msgformat" \
+			"5 Item Format         : " "$tmp_MQTT_ItemFormat" \
+			"6 Item Delimiter      : " "$tmp_MQTT_ItemDelimiter" \
+			"7 Publisher Arguments : " "$tmp_MQTT_PublisherArgs" \
+			"8 Data                : " "$tmp_MQTT_Data" \
+			3>&1 1>&2 2>&3)
+
+		rc=$?
+
+		if [ $rc -eq $wt_esc ]; then # ESC
+			return
+		elif [ $rc -eq 0 ]; then # Select/Enter
+			case "$opt" in
+				1\ *) tmp_MQTT_Host=$(get_input "Enter MQTT broker hostname or IP-Address\nEnables or disables MQTT functionality" "$tmp_MQTT_Host") ;;
+				2\ *) tmp_MQTT_Publisher=$(get_input "Enter MQTT Publish executable" "$tmp_MQTT_Publisher") ;;
+				3\ *) tmp_MQTT_Topic=$(get_input "Enter MQTT Topic" "$tmp_MQTT_Topic") ;;
+				4\ *) tmp_mqtt_msgformat=$(get_option $'json\tjson\ntext\ttext\nxml\txml\ncustom\tcustom' "$tmp_mqtt_msgformat" "MQTT Message output Format" "" "radio" --notags) ;;
+				5\ *) tmp_MQTT_ItemFormat=$(get_input "Enter MQTT Item Format" "$tmp_MQTT_ItemFormat") ;;
+				6\ *) tmp_MQTT_ItemDelimiter=$(get_option $'comma\tcomma\nsemicolon\tsemicolon\nnone\tnone' "$tmp_MQTT_ItemDelimiter" "" "" "radio" --notags) ;;
+				7\ *) tmp_MQTT_PublisherArgs=$(get_input "Enter MQTT Publisher Arguments" "$tmp_MQTT_PublisherArgs") ;;
+				8\ *) tmp_MQTT_Data=$(get_mqtt_data "$tmp_MQTT_Data") ;;
+			esac
+			if [ "$tmp_mqtt_msgformat" = "json" ]; then
+				tmp_MQTT_ItemDelimiter="$mqtt_json_itemdelimiter"
+				tmp_MQTT_ItemFormat="$mqtt_json_itemformat"
+				tmp_MQTT_PublisherArgs="$mqtt_json_publisherargs"
+			elif [ "$tmp_mqtt_msgformat" = "xml" ]; then
+				tmp_MQTT_ItemDelimiter="$mqtt_xml_itemdelimiter"
+				tmp_MQTT_ItemFormat="$mqtt_xml_itemformat"
+				tmp_MQTT_PublisherArgs="$mqtt_xml_publisherargs"
+			elif [ "$tmp_mqtt_msgformat" = "text" ]; then
+				tmp_MQTT_ItemDelimiter="$mqtt_text_itemdelimiter"
+				tmp_MQTT_ItemFormat="$mqtt_text_itemformat"
+				tmp_MQTT_PublisherArgs="$mqtt_text_publisherargs"
+			# else # custom
+				# Leave all mqtt settings as is
+			fi
+		elif [ $rc -eq 1 ]; then # OK
+			MQTT_Publisher="$tmp_MQTT_Publisher"
+			MQTT_Host="$tmp_MQTT_Host"
+			MQTT_Topic="$tmp_MQTT_Topic"
+			MQTT_ItemFormat="$tmp_MQTT_ItemFormat"
+			MQTT_ItemDelimiter="$tmp_MQTT_ItemDelimiter"
+			MQTT_PublisherArgs="$tmp_MQTT_PublisherArgs"
+			MQTT_Data="$tmp_MQTT_Data"
+			mqtt_msgformat="$tmp_mqtt_msgformat"
+			cfg_dirty=1
+			return
+		fi
+	done
+}
+
+get_mqtt_data()
+{
+	# $1: current_status
+
+	mqttdata=()
+	mqttdata+=('Timestamp' 'Current date/time' 'off')
+	mqttdata+=('InvTime' 'Inverter date/time' 'off')
+	mqttdata+=('SunRise' 'Sunrise time' 'off')
+	mqttdata+=('SunSet' 'Sunset time' 'off')
+	mqttdata+=('InvSerial' 'Serial Number' 'off')
+	mqttdata+=('InvName' 'Device name' 'off')
+	mqttdata+=('InvClass' 'Device class' 'off')
+	mqttdata+=('InvType' 'Device type' 'off')
+	mqttdata+=('InvSwVer' 'Software package' 'off')
+	mqttdata+=('InvStatus' 'Condition' 'off')
+	mqttdata+=('InvTemperature' 'Operating condition temperatures' 'off')
+	mqttdata+=('InvGridRelay' 'Grid relay/contactor' 'off')
+	mqttdata+=('ETotal' 'Total yield' 'off')
+	mqttdata+=('EToday' 'Day yield' 'off')
+	mqttdata+=('PACTot' 'Power' 'off')
+	mqttdata+=('PDC1' 'DC power input String 1' 'off')
+	mqttdata+=('PDC2' 'DC power input String 2' 'off')
+	mqttdata+=('UDC1' 'DC voltage input String 1' 'off')
+	mqttdata+=('UDC2' 'DC voltage input String 2' 'off')
+	mqttdata+=('IDC1' 'DC current input String 1' 'off')
+	mqttdata+=('IDC2' 'DC current input String 2' 'off')
+	mqttdata+=('OperTm' 'Operating time' 'off')
+	mqttdata+=('FeedTm' 'Feed-in time' 'off')
+	mqttdata+=('PAC1' 'Power L1' 'off')
+	mqttdata+=('PAC2' 'Power L2' 'off')
+	mqttdata+=('PAC3' 'Power L3' 'off')
+	mqttdata+=('UAC1' 'Grid voltage phase L1' 'off')
+	mqttdata+=('UAC2' 'Grid voltage phase L2' 'off')
+	mqttdata+=('UAC3' 'Grid voltage phase L3' 'off')
+	mqttdata+=('IAC1' 'Grid current phase L1' 'off')
+	mqttdata+=('IAC2' 'Grid current phase L2' 'off')
+	mqttdata+=('IAC3' 'Grid current phase L3' 'off')
+	mqttdata+=('GridFreq' 'Grid frequency' 'off')
+	mqttdata+=('BatTmpVal' 'Battery temperature' 'off')
+	mqttdata+=('BatVol' 'Battery voltage' 'off')
+	mqttdata+=('BatAmp' 'Battery current' 'off')
+	mqttdata+=('BatChaStt' 'Current battery charge status' 'off')
+	
+	# Select current selections
+	for ((i=0; i<${#mqttdata[@]}; i+=3))
+	do
+		if echo "$1" | grep -qP ",?${mqttdata[$i]},?"
+			then mqttdata[$i+2]='on'
+		fi
+	done
+	
+	local opt
+	opt=$(whiptail --checklist --title "MQTT Data" "Select MQTT Data\nUse <SPACE> to make a selection, <ESC> to cancel" 0 0 10 "${mqttdata[@]}" 3>&1 1>&2 2>&3)
+	rc=$?
+
+	if [ $rc -eq 0 ]; then # OK
+		# Return comma delimited string without quotes
+		echo ${opt// /,} | tr -d '"'
+	else # ESC/Cancel
+		echo "$1"
+	fi
+
+	return $rc
 }
 
 get_input()
@@ -1256,11 +1733,11 @@ get_input()
 	# $3 Title
 	local tmp_input
 	local rc=0
-	
+
 	if [ -z "$3" ]; then
-		tmp_input=$(whiptail --inputbox "$1" 0 0 "$2" 3>&1 1>&2 2>&3)
+		tmp_input=$(whiptail --inputbox "$1" 0 0 -- "$2" 3>&1 1>&2 2>&3)
 	else
-		tmp_input=$(whiptail --inputbox --title "$3" "$1" 0 0 "$2" 3>&1 1>&2 2>&3)
+		tmp_input=$(whiptail --inputbox --title "$3" "$1" 0 0 -- "$2" 3>&1 1>&2 2>&3)
 	fi
 	
 	rc=$?
@@ -1270,6 +1747,48 @@ get_input()
 	else
 		echo "$2"			# ESC
 	fi
+	
+	return $rc
+}
+
+# extended version of get_input
+# uses regex validation pattern
+get_inputx()
+{
+	# $1 Message to display
+	# $2 Current Value
+	# $3 Title (optional)
+	# $4 regex validation pattern (optional)
+	# $5 validation error message (optional)
+	
+	local tmp_input="$2"
+	local rc=0
+	local waiting=1
+	local msg="$1"
+	
+	while [ "$waiting" -eq 1 ]; do
+		if [ -z "$3" ]; then
+			tmp_input=$(whiptail --inputbox "$msg" 0 0 -- "$tmp_input" 3>&1 1>&2 2>&3)
+		else
+			tmp_input=$(whiptail --inputbox --title "$3" "$msg" 0 0 -- "$tmp_input" 3>&1 1>&2 2>&3)
+		fi
+	
+		rc=$?
+
+		if [ "$rc" -eq 0 ]; then
+			if [[ "$tmp_input" =~ $4 ]]; then
+				echo "$tmp_input" # OK
+				waiting=0
+			else
+				if [ ! -z "$5" ]; then
+					msg="$1\n\n$5"
+				fi
+			fi
+		else
+			echo "$2" # ESC, return default value
+			waiting=0
+		fi
+	done
 	
 	return $rc
 }
@@ -1612,7 +2131,7 @@ on_off_status()
 	elif [ "$1" -eq 1 ]; then
 		echo "On"
 	else
-		echo "?"
+		echo "N/A"
 	fi
 }
 
@@ -1620,6 +2139,7 @@ do_advanced()
 {
 	local tmp_BTConnectRetries="$BTConnectRetries"
 	local tmp_CalculateMissingSpotValues="$CalculateMissingSpotValues"
+	local tmp_Password="$Password"
 
 	local rc=0
 	local opt
@@ -1630,6 +2150,7 @@ do_advanced()
 			"2 CSV        " "Advanced CSV settings" \
 			"3 Time       " "Advanced Time settings" \
 			"4 Misc       " "Miscellaneous settings" \
+			"5 User PW    " "Inverter Password for USER" \
 			3>&1 1>&2 2>&3)
 			
 		rc=$?
@@ -1642,10 +2163,12 @@ do_advanced()
 				3\ *) do_sync_time ;;
 				4\ *) tmp_CalculateMissingSpotValues=$(get_option $'0\tOff\n1\tOn' "$tmp_CalculateMissingSpotValues" "Calculate Missing SpotValues" \
 						"Values not provided by inverter will be calculated\n") ;;
+				5\ *) tmp_Password=$(get_input "This password should not exceed 12 charactars\n" "$tmp_Password" "Inverter Password for USER") ;;
 			esac
 		elif [ $rc -eq 1 ]; then # OK
 			BTConnectRetries="$tmp_BTConnectRetries"
-			CalculateMissingSpotValues="$CalculateMissingSpotValues"
+			CalculateMissingSpotValues="$tmp_CalculateMissingSpotValues"
+			Password="$tmp_Password"
 			cfg_dirty=1
 			return
 		fi
@@ -1699,6 +2222,10 @@ install_pkg()
 	rc=$?
 	
 	if [ "$rc" -ne 0 ]; then	# Package not installed
+		# Run apt-get update if last update was more than one week ago
+		# https://askubuntu.com/questions/410247/how-to-know-last-time-apt-get-update-was-executed/904259#904259
+		[ -z "$(find -H /var/lib/apt/lists -maxdepth 0 -mtime -7)" ] && apt-get update
+		
 		apt-get -y install "$package"
 		dpkg -s "$package" &>/dev/null
 		rc=$?
@@ -1786,13 +2313,6 @@ do_preinstallcheck()
 	#	return 1
 	#fi
 
-	if [ "$pvo_enabled" -eq 1 ]; then
-		if [ -z "$PVoutput_Key" ] || [ -z "$PVoutput_SID" ]; then
-			whiptail --msgbox "PVoutput enabled, but API key and/or SystemID missing" 0 0
-			return 1
-		fi
-	fi
-		
 	# TODO: Add other checks
 	
 	printf "Done\n"
@@ -1809,6 +2329,11 @@ contains()
 	shift
 	for e; do [[ "$e" = "$match" ]] && return 0; done
 	return 1
+}
+
+debug_trace()
+{
+	echo "$1"
 }
 
 # Main starts here
@@ -1846,7 +2371,7 @@ echo "userhome=$userhome"
 : ${version_wanted:=$(get_latest_release)}
 
 if [ -z "$version_wanted" ]; then
-	echo "Error: Unable to get available versions"
+	echo "Error: Unable to get list of available SBFspot versions for '$lsb_codename'"
 	exit 1
 fi
 
@@ -1860,7 +2385,7 @@ fi
 
 # Get available versions
 ver_avail=$(get_releases)
-contains "$version_wanted" ${ver_avail[@]}
+contains "$version_wanted" "${ver_avail[@]}"
 if [ "$?" = "1" ]; then
 	echo "Version $version_wanted is not available for installation."
 	echo "Select one of $ver_avail"
@@ -1871,6 +2396,8 @@ cfg_dirty=0
 mkdir -p "$tmppath"
 read_variables
 rc=$?
+
+export NEWT_COLORS=''
 
 if [ "$rc" -eq 0 ]; then
 	#
@@ -1883,20 +2410,40 @@ if [ "$rc" -eq 0 ]; then
 		else
 			db_on_server="$sql_dbtype"
 		fi
+		
+		# MQTT is supported as from SBFspot V3.6.0
+		if [ "$(vvalue $version_wanted)" -lt "$(vvalue '3.6.0')" ]; then
+			mqtt_enabled=-1	# MQTT N/A
+		elif [ -z "$MQTT_Host" ]; then
+			mqtt_enabled=0
+		else
+			mqtt_enabled=1
+		fi;
+
+		# Set PVOutput status
+		if [ "$sql_dbtype" = "NoSQL" ]; then
+			pvo_enabled=-1	# PVO N/A
+		elif [ -z "$PVoutput_Key" ] || [ -z "$PVoutput_SID" ]; then
+			pvo_enabled=0
+		else
+			pvo_enabled=1
+		fi
 
 		opt=$(whiptail \
 			--title "$appname" \
 			--menu "Setup Options" 0 0 0 \
 			--cancel-button "Install" \
 			--ok-button "Select" \
+			-- \
 			"1 Directories      " "$dir_smadata" \
 			"2 Connection Type  " "$inv_connectiontype to $(cut -d ',' -f 1 <<< $inv_address)" \
 			"3 Location         " "$Timezone $Latitude/$Longitude" \
 			"4 Plant Name       " "$Plantname" \
 			"5 Database         " "$db_on_server" \
 			"6 PVOutput         " "$(on_off_status "$pvo_enabled")" \
-			"7 Advanced Options " "" \
-			"8 About            " "Information about sbfspot-config" \
+			"7 MQTT             " "$(on_off_status "$mqtt_enabled")" \
+			"8 Advanced Options " "" \
+			"9 About            " "Information about sbfspot-config" \
 			3>&1 1>&2 2>&3)
 
 		rc=$?
@@ -1911,8 +2458,9 @@ if [ "$rc" -eq 0 ]; then
 				4\ *) do_plantname ;;
 				5\ *) do_db_config ;;
 				6\ *) do_pvo_config ;;
-				7\ *) do_advanced ;;
-				8\ *) do_about ;;
+				7\ *) do_mqtt_config ;;
+				8\ *) do_advanced ;;
+				9\ *) do_about ;;
 			esac
 		elif [ $rc -eq 1 ]; then # Install
 			save_defaults
@@ -1923,6 +2471,9 @@ if [ "$rc" -eq 0 ]; then
 					0)	whiptail --msgbox "Installation Complete" 0 0
 						exit 0 ;;
 					1)	do_pvo_config ;;
+					2)	export NEWT_COLORS='root=white,red'
+						whiptail --msgbox "Installation Failed" 0 0
+						exit 2 ;;
 				  255)	exit $wt_esc
 				esac
 			fi
