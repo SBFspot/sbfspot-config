@@ -9,7 +9,7 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.1.0
+# sbfspot-config V1.1.1
 # (c) 2017-2020, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian)
@@ -24,6 +24,9 @@
 # curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
 
 # Changes:
+# V1.1.1 (19-JUN-2020)
+#	- Fix: #20 device check returns "Not running on a PI"
+#
 # V1.1.0 (23-MAY-2020)
 #	- Fix: #7 Existing config file overwritten and options missing
 #	- Fix: #10 tar file names contain debian codename to support different raspbian versions (as from SBFspot 3.6.0)
@@ -73,7 +76,7 @@
 
 #set -uo pipefail
 
-readonly toolversion="1.1.0"
+readonly toolversion="1.1.1"
 readonly appname="SBFspot Configuration Tool V$toolversion"
 readonly appshortname="sbfspot-config"
 
@@ -519,7 +522,9 @@ get_releases()
 
 is_pi()
 {
-	grep -q "^model name\\s*:\\s*ARMv" /proc/cpuinfo
+	# Fix #20
+	#grep -q "^model name\\s*:\\s*ARMv" /proc/cpuinfo
+	grep -aq "^Raspberry Pi" /proc/device-tree/model
 	return $?
 }
 
