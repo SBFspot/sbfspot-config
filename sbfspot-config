@@ -2325,22 +2325,6 @@ do_preinstallcheck()
 	return 0 #OK
 }
 
-# Check if an element is in array
-# contains "an item" "${array[@]}"
-# returns 0 if array contains item, or 1 if not
-contains()
-{
-	local e match="$1"
-	shift
-	for e; do [[ "$e" = "$match" ]] && return 0; done
-	return 1
-}
-
-debug_trace()
-{
-	echo "$1"
-}
-
 # Main starts here
 echo "$appname"
 
@@ -2390,8 +2374,7 @@ fi
 
 # Get available versions
 ver_avail=$(get_releases)
-contains "$version_wanted" "${ver_avail[@]}"
-if [ "$?" = "1" ]; then
+if [[ ! " ${ver_avail[@]} " =~ " ${version_wanted} " ]]; then
 	echo "Version $version_wanted is not available for installation."
 	echo "Select one of $ver_avail"
 	exit 1
