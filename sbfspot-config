@@ -9,7 +9,7 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.1.1
+# sbfspot-config V1.1.2
 # (c) 2017-2020, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian)
@@ -24,6 +24,9 @@
 # curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
 
 # Changes:
+# V1.1.2 (22-JUN-2020)
+#	- Fix: #21 New install with sbfspot-config fails to unavailable version 3.7.0
+#
 # V1.1.1 (19-JUN-2020)
 #	- Fix: #20 device check returns "Not running on a PI"
 #
@@ -76,7 +79,7 @@
 
 #set -uo pipefail
 
-readonly toolversion="1.1.1"
+readonly toolversion="1.1.2"
 readonly appname="SBFspot Configuration Tool V$toolversion"
 readonly appshortname="sbfspot-config"
 
