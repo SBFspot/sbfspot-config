@@ -9,10 +9,10 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.1.2
-# (c) 2017-2020, SBF
+# sbfspot-config V1.2.0
+# (c) 2017-2021, SBF
 # This tool provides a straight-forward way of doing complete installation
-# and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian)
+# and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian/Raspberry Pi OS)
 #
 # The latest version of this tool can be found at https://github.com/sbfspot/sbfspot-config
 #
@@ -24,6 +24,12 @@
 # curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
 
 # Changes:
+# V1.2.0 (11-MAR-2021)
+#	- Fix: #28 SBFspot and MariaDB/MySQL (DB Creation MariaDB)
+#	- Add: MariaDB port number (See SBFspot Issue #7)
+#   - Fix: #27 Can't define MQTT user and password
+#   - Fix: #31 '!' character in password SMA saved in config but not loaded
+#
 # V1.1.2 (22-JUN-2020)
 #	- Fix: #21 New install with sbfspot-config fails to unavailable version 3.7.0
 #
@@ -79,7 +85,7 @@
 
 #set -uo pipefail
 
-readonly toolversion="1.1.2"
+readonly toolversion="1.2.0"
 readonly appname="SBFspot Configuration Tool V$toolversion"
 readonly appshortname="sbfspot-config"
 
@@ -90,7 +96,7 @@ readonly p_daydata="-v -ad1 -am0 -ae1"
 readonly p_monthdata="-v -sp0 -ad0 -am1 -ae1 -finq"
 
 # timings used in cron jobs
-readonly t_daydata="*/5 6-22 * * *"	# Every 5 mins from 06:00:00 - 22:59:59
+readonly t_daydata="*/5 6-22 * * *"	# Every 5 mins from 06:00:00 - 22:55:00
 readonly t_monthdata="55 05 * * *"	# Run once a day at 05:55:00
 
 readonly logpath="/var/log/sbfspot.3"
@@ -171,6 +177,7 @@ create_defaults()
 	SQL_Hostname=""
 	SQL_Username=""
 	SQL_Password=""
+	SQL_Port=""
 	
 	CalculateMissingSpotValues="0"
 	
@@ -195,6 +202,8 @@ create_defaults()
 	MQTT_Host=''	#'test.mosquitto.org'
 	MQTT_Topic='sbfspot_{serial}'
 	MQTT_Data='Timestamp,SunRise,SunSet,InvSerial,InvName,InvTime,InvStatus,InvTemperature,InvGridRelay,EToday,ETotal,PACTot,UDC1,UDC2,IDC1,IDC2,PDC1,PDC2'
+	MQTT_Username=''
+	MQTT_Password=''
 
 	if [ "$mqtt_msgformat" = "json" ]; then
 		MQTT_ItemDelimiter="$mqtt_json_itemdelimiter"
@@ -277,6 +286,7 @@ save_defaults()
 
 		echo "SQL_Database=$SQL_Database"
 		echo "SQL_Hostname=$SQL_Hostname"
+		echo "SQL_Port=$SQL_Port"
 		echo "SQL_Username=$SQL_Username"
 		echo "SQL_Password=$SQL_Password"
 
@@ -297,6 +307,8 @@ save_defaults()
 		echo "MQTT_ItemDelimiter=$MQTT_ItemDelimiter"
 		echo "MQTT_ItemFormat='$MQTT_ItemFormat'"
 		echo "MQTT_PublisherArgs='$MQTT_PublisherArgs'"
+		echo "MQTT_Username='$MQTT_Username'"
+		echo "MQTT_Password='$MQTT_Password'"
 		
 		# Not a cfg variable
 		echo "mqtt_msgformat=$mqtt_msgformat"
@@ -370,7 +382,7 @@ read_variables()
 		# Read .cfg files
 		echo "Reading settings from $cfg"
 		local tempcfg="$tmppath/cfg.tmp"
-		grep -Pv "^(MQTT_|#)" "$cfg" | grep -Po "^[aA-zZ_]*=[aA-zZ0-9/%.:-]*">"$tempcfg"
+		grep -Pv "^(MQTT_|#)" "$cfg" | grep -Po "^[aA-zZ_]*=.*">"$tempcfg"  # Fix #31
 		
 		# Surround MQTT_ values with '' to allow special characters like {,"}
 		while IFS='=' read -ra keyvalue; do
@@ -486,6 +498,9 @@ get_latest_release()
 # Get a list of available release versions
 get_releases()
 {
+	# TODO: Exclude pre-releases, except if requested to install
+	# sed -n '/SBFspot V3.8.0/{:start /prerelease/!{N;b start};/./p}' "$tmppath/releases"
+	
 	local arr_releases=()
 	
 	local url="$url_releases"
@@ -662,6 +677,7 @@ do_db_config()
 	local tmp_sql_dbtype="$sql_dbtype"
 	local tmp_SQL_Database="$SQL_Database"
 	local tmp_SQL_Hostname="$SQL_Hostname"
+	local tmp_SQL_Port="$SQL_Port"
 	local tmp_SQL_Username="$SQL_Username"
 	local tmp_SQL_Password="$SQL_Password"
 
@@ -678,6 +694,7 @@ do_db_config()
 		sql_dbtype="$tmp_sql_dbtype"
 		SQL_Database="$tmp_SQL_Database"
 		SQL_Hostname="$tmp_SQL_Hostname"
+		SQL_Port="$tmp_SQL_Port"
 		SQL_Username="$tmp_SQL_Username"
 		SQL_Password="$tmp_SQL_Password"
 		CSV_Export="$tmp_CSV_Export"
@@ -693,6 +710,7 @@ do_db_config()
 		sql_dbtype="SQLite"
 		SQL_Database="$dir_smadata/SBFspot.db"
 		SQL_Hostname=""
+		SQL_Port=""
 		SQL_Username=""
 		SQL_Password=""
 		CSV_Export="0"
@@ -716,6 +734,7 @@ do_db_config()
 			sql_dbtype="MariaDB"
 			SQL_Database="SBFspot"
 			SQL_Hostname="localhost"
+			SQL_Port="3306"
 			SQL_Username="SBFspotUser"
 			SQL_Password="SBFspotPassword"
 			CSV_Export="0"
@@ -727,6 +746,7 @@ do_db_config()
 		sql_dbtype="NoSQL"
 		SQL_Database=""
 		SQL_Hostname=""
+		SQL_Port=""
 		SQL_Username=""
 		SQL_Password=""
 		CSV_Export="1"
@@ -740,6 +760,7 @@ do_mysql_config()
 	local rc=0
 	local tmp_SQL_Database="$SQL_Database"
 	local tmp_SQL_Hostname="$SQL_Hostname"
+	local tmp_SQL_Port="$SQL_Port"
 	local tmp_SQL_Username="$SQL_Username"
 	local tmp_SQL_Password="$SQL_Password"
 
@@ -754,6 +775,7 @@ do_mysql_config()
 			"2 Hostname :" "$tmp_SQL_Hostname" \
 			"3 Username :" "$tmp_SQL_Username" \
 			"4 Password :" "$tmp_SQL_Password" \
+			"5 Port     :" "$tmp_SQL_Port" \
 			3>&1 1>&2 2>&3)
 			
 		rc=$?
@@ -766,12 +788,14 @@ do_mysql_config()
 				2\ *) tmp_SQL_Hostname=$(get_input "Enter server name or IP-address" "$tmp_SQL_Hostname") ;;
 				3\ *) tmp_SQL_Username=$(get_input "Enter username" "$tmp_SQL_Username") ;;
 				4\ *) tmp_SQL_Password=$(get_input "Enter password" "$tmp_SQL_Password") ;;
+				5\ *) tmp_SQL_Port=$(get_input "Enter port" "$tmp_SQL_Port") ;;
 			esac
 		elif [ $rc -eq 1 ]; then # OK
 			SQL_Database="$tmp_SQL_Database"
 			SQL_Hostname="$tmp_SQL_Hostname"
 			SQL_Username="$tmp_SQL_Username"
 			SQL_Password="$tmp_SQL_Password"
+			SQL_Port="$tmp_SQL_Port"
 			cfg_dirty=1
 			return
 		fi
@@ -809,6 +833,7 @@ do_about()
 # return codes:
 #   0 - OK, Installation complete
 #   1 - PVO config error - show PVO config menu
+#  99 - ESC/Cancel
 # 255 - Fatal error - Terminate
 do_install()
 {
@@ -859,7 +884,7 @@ do_install()
 	for file in "$tmp_dir/TagList"*".txt"; do cp "$file" "$dir_program";done
 	chmod 644 TagList*
 	
-	# Setup SQLite db
+	# Setup SQLite
 	if [ "$dbtype" = "sqlite" ]; then
 		install_pkg sqlite3
 		
@@ -887,12 +912,43 @@ do_install()
 	fi
 	
 	# Setup MySQL/MariaDB
-	# User is responsible for creating SBFspot db
 	if [ "$dbtype" = "mariadb" ]; then
 		install_pkg "$dbtype-client"
 
+		$dbtype -h $SQL_Hostname -P $SQL_Port -u $SQL_Username -p$SQL_Password $SQL_Database -B --disable-column-names -e 'SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME="$SQL_Database";' &>"$tmp_dir/sqldb.test"
+		
+		if [ "$(stat -c %s $tmp_dir/sqldb.test)" -eq 8 ]; then # sqldb.test contains 'sbfspot\r'
+			echo "$SQL_Database database exists"
+		else
+			if [ -n "$(grep -i "ERROR [^:]*: Access denied for user '$SQL_Username'" $tmp_dir/sqldb.test)" ]; then # Error
+				# Access denied for SBFspotUser, most probably because it does not exist
+				echo "Access denied for user '$SQL_Username'"
+				echo "Requesting root password..."
+				local root_pw
+                root_pw=$(get_password "Root access is required to create database and user\n\nEnter root password for $dbtype on $SQL_Hostname")
+                rc=$?
+                root_pw=$(trim $root_pw)
+                if [ "$rc" -eq 0 ] && [ -n "$root_pw" ]; then
+                    echo "Creating database '$SQL_Database'"
+                    $dbtype -h $SQL_Hostname -P $SQL_Port -u root -p$root_pw < "$tmp_dir/CreateMySQLDB.sql" &>"$tmp_dir/sqldb.test" 
+                    echo "Creating user '$SQL_Username'"
+                    $dbtype -h $SQL_Hostname -P $SQL_Port -u root -p$root_pw < "$tmp_dir/CreateMySQLUser.sql" &>"$tmp_dir/sqldb.test" 
+                else
+                    echo "Missing root password"
+                    return 99  # ESC/Cancel
+                fi
+			else
+				if [ -n "$(grep -i "ERROR [^:]*: " $tmp_dir/sqldb.test)" ]; then
+					# Any other error
+					cat "$tmp_dir/sqldb.test"
+					echo "Installation aborted"
+					return 255
+				fi
+			fi
+		fi
+
 		echo "Checking database..."
-		$dbtype -h $SQL_Hostname -u $SQL_Username -p$SQL_Password $SQL_Database -B --disable-column-names -e 'SELECT * FROM '$SQL_Database'.Config WHERE `Key`="SchemaVersion";' &>"$tmp_dir/sqldb.test"
+		$dbtype -h $SQL_Hostname -P $SQL_Port -u $SQL_Username -p$SQL_Password $SQL_Database -B --disable-column-names -e 'SELECT * FROM '$SQL_Database'.Config WHERE `Key`="SchemaVersion";' &>"$tmp_dir/sqldb.test"
 
 		# Check for errors
 		local sql_error=$(grep -i "ERROR [^:]*: " $tmp_dir/sqldb.test)
@@ -910,8 +966,25 @@ do_install()
 		read -r -a sv <<< $(grep -P "^SchemaVersion\s*\d*" $tmp_dir/sqldb.test)
 		local schemaversion=${sv[1]}
 		
-		# TODO: Validate SchemaVersion
 		echo "Schema Version=$schemaversion"
+
+##		if [ "$schemaversion" -lt 3 ] && [ "$(vvalue $version_wanted)" -ge "$(vvalue '3.8.0')" ]; then
+##			if [ "$dbtype" = "sqlite" ]; then
+##				echo "Updating database to Version 3..."
+##				cd "$dir_smadata"
+##				sqlite3 SBFspot.db < "$tmp_dir/Update_V2_SQLite.sql"
+##				sqlite3 SBFspot.db < "$tmp_dir/Update_V3_SQLite.sql"
+##			fi
+##			
+##			# Setup MySQL/MariaDB
+##			# User is responsible for update of SBFspot db
+##			if [ "$dbtype" = "mariadb" ]; then
+##				whiptail --msgbox "There is a problem:\nIncorrect Schema Version\n\nDid you update the SBFspot database?\n$dbtype < $dir_program/Update_V2_MySQL.sql\n$dbtype < $dir_program/Update_V3_MySQL.sql" 0 0
+##				echo "Incorrect Schema Version"
+##				echo "Installation aborted"
+##				return 255
+##			fi
+##		fi
 	fi
 
 	if [ "$mqtt_enabled" -eq 1 ]; then
@@ -1121,18 +1194,11 @@ do_install()
 			echo ""
 		fi
 
-#		# Configure MySQL
-#		if [ "$dbtype" = "mysql" ]; then
-#			echo "SQL_Database=$SQL_Database"
-#			echo "SQL_Hostname=$SQL_Hostname"
-#			echo "SQL_Username=$SQL_Username"
-#			echo "SQL_Password=$SQL_Password"
-#		fi
-
 		# Configure MariaDB
 		if [ "$dbtype" = "mariadb" ]; then
 			echo "SQL_Database=$SQL_Database"
 			echo "SQL_Hostname=$SQL_Hostname"
+			echo "SQL_Port=$SQL_Port"
 			echo "SQL_Username=$SQL_Username"
 			echo "SQL_Password=$SQL_Password"
 			echo ""
@@ -1171,7 +1237,7 @@ do_install()
 			echo "# JSON: MQTT_PublisherArgs=-h {host} -t {topic} -m \"{{message}}\""
 			echo "# TEXT: MQTT_PublisherArgs=-h {host} -t {topic} -m \"{message}\""
 			echo "# XML : MQTT_PublisherArgs=-h {host} -t {topic} -m \"<mqtt_message>{message}</mqtt_message>\""
-			echo "MQTT_PublisherArgs=$MQTT_PublisherArgs"
+			[ -z "$MQTT_Username" ] && echo "MQTT_PublisherArgs=$MQTT_PublisherArgs" || echo "MQTT_PublisherArgs=-u $MQTT_Username -P $MQTT_Password $MQTT_PublisherArgs"
 			echo ""
 			echo "# Data to be published (comma delimited)"
 			echo "MQTT_Data=$MQTT_Data"
@@ -1437,29 +1503,44 @@ do_install()
 			echo "# $sbfspotuploadcfg - Created $(date) with $appshortname V$toolversion"
 			echo "# For detailed configuration info, refer to SBFspotUpload.default.cfg"
 			echo "#"
+			echo ""
 
+			echo "################################"
+			echo "### Log Settings             ###"
+			echo "################################"
 			echo "LogDir=$dir_logs"
+			echo "#LogLevel=debug|info|warning|error (default info)"
+			echo "LogLevel=info"
+			echo ""
 
+			echo "################################"
+			echo "### PVoutput Upload Settings ###"
+			echo "################################"
+			echo "#PVoutput_SID"
+			echo "#Map inverters to PVoutput System ID's"
+			echo "#PVoutput_SID=SerialNmbrInverter_1:PVoutput_System_ID_1,SerialNmbrInverter_2:PVoutput_System_ID_2"
+			echo "#e.g. PVoutput_SID=200212345:4321"
 			echo "PVoutput_SID=$pvo_serial_sid"
+			echo ""
+			
+			echo "#PVoutput_Key"
+			echo "#Sets PVoutput API Key"
 			echo "PVoutput_Key=$PVoutput_Key"
+			echo ""
 
 			# Configure SQLite
+			echo "################################"
+			echo "### SQL DB Settings          ###"
+			echo "################################"
 			if [ "$dbtype" = "sqlite" ]; then
 				echo "SQL_Database=$SQL_Database"
 			fi
-
-#			# Configure MySQL
-#			if [ "$dbtype" = "mysql" ]; then
-#				echo "SQL_Database=$SQL_Database"
-#				echo "SQL_Hostname=$SQL_Hostname"
-#				echo "SQL_Username=$SQL_Username"
-#				echo "SQL_Password=$SQL_Password"
-#			fi
 
 			# Configure MariaDB
 			if [ "$dbtype" = "mariadb" ]; then
 				echo "SQL_Database=$SQL_Database"
 				echo "SQL_Hostname=$SQL_Hostname"
+				echo "SQL_Port=$SQL_Port"
 				echo "SQL_Username=$SQL_Username"
 				echo "SQL_Password=$SQL_Password"
 			fi
@@ -1598,9 +1679,14 @@ do_mqtt_config()
 	local tmp_MQTT_Topic="$MQTT_Topic"
 	local tmp_MQTT_ItemFormat="$MQTT_ItemFormat"
 	local tmp_MQTT_ItemDelimiter="$MQTT_ItemDelimiter"
-	local tmp_MQTT_PublisherArgs="$MQTT_PublisherArgs"
 	local tmp_MQTT_Data="$MQTT_Data"
+	local tmp_MQTT_Username="$MQTT_Username"
+	local tmp_MQTT_Password="$MQTT_Password"
 	local tmp_mqtt_msgformat="$mqtt_msgformat"
+	# Strip Username/Password from PublisherArgs
+	# PublisherArgs=-u <Username> -P <Password> -h {host} -t {topic} -m "{{message}}"
+	local searchstring="-h "
+	local tmp_MQTT_PublisherArgs="$searchstring${MQTT_PublisherArgs#*$searchstring}"
 
 	local mqtt_host_menu_text
 	
@@ -1614,14 +1700,16 @@ do_mqtt_config()
 			mqtt_host_menu_text="$tmp_MQTT_Host"
 		fi
 		opt=$(whiptail --title "MQTT Configuration" --menu "" 0 70 0 --cancel-button "OK" --ok-button "Select" -- \
-			"1 Broker Host Address : " "$mqtt_host_menu_text" \
-			"2 Publisher           : " "$tmp_MQTT_Publisher" \
-			"3 Topic               : " "$tmp_MQTT_Topic" \
-			"4 Message Format      : " "$tmp_mqtt_msgformat" \
-			"5 Item Format         : " "$tmp_MQTT_ItemFormat" \
-			"6 Item Delimiter      : " "$tmp_MQTT_ItemDelimiter" \
-			"7 Publisher Arguments : " "$tmp_MQTT_PublisherArgs" \
-			"8 Data                : " "$tmp_MQTT_Data" \
+			"1  Broker Host Address : " "$mqtt_host_menu_text" \
+			"2  Publisher           : " "$tmp_MQTT_Publisher" \
+			"3  Topic               : " "$tmp_MQTT_Topic" \
+			"4  Message Format      : " "$tmp_mqtt_msgformat" \
+			"5  Item Format         : " "$tmp_MQTT_ItemFormat" \
+			"6  Item Delimiter      : " "$tmp_MQTT_ItemDelimiter" \
+			"7  Publisher Arguments : " "$tmp_MQTT_PublisherArgs" \
+			"8  Data                : " "$tmp_MQTT_Data" \
+			"9  Username            : " "$tmp_MQTT_Username" \
+			"10 Password            : " "$tmp_MQTT_Password" \
 			3>&1 1>&2 2>&3)
 
 		rc=$?
@@ -1638,6 +1726,8 @@ do_mqtt_config()
 				6\ *) tmp_MQTT_ItemDelimiter=$(get_option $'comma\tcomma\nsemicolon\tsemicolon\nnone\tnone' "$tmp_MQTT_ItemDelimiter" "" "" "radio" --notags) ;;
 				7\ *) tmp_MQTT_PublisherArgs=$(get_input "Enter MQTT Publisher Arguments" "$tmp_MQTT_PublisherArgs") ;;
 				8\ *) tmp_MQTT_Data=$(get_mqtt_data "$tmp_MQTT_Data") ;;
+				9\ *) tmp_MQTT_Username=$(get_input "Enter MQTT Username" "$tmp_MQTT_Username") ;;
+				10\ *) tmp_MQTT_Password=$(get_input "Enter MQTT Password" "$tmp_MQTT_Password") ;;
 			esac
 			if [ "$tmp_mqtt_msgformat" = "json" ]; then
 				tmp_MQTT_ItemDelimiter="$mqtt_json_itemdelimiter"
@@ -1662,6 +1752,8 @@ do_mqtt_config()
 			MQTT_ItemDelimiter="$tmp_MQTT_ItemDelimiter"
 			MQTT_PublisherArgs="$tmp_MQTT_PublisherArgs"
 			MQTT_Data="$tmp_MQTT_Data"
+			MQTT_Username="$tmp_MQTT_Username"
+			MQTT_Password="$tmp_MQTT_Password"
 			mqtt_msgformat="$tmp_mqtt_msgformat"
 			cfg_dirty=1
 			return
@@ -1731,6 +1823,38 @@ get_mqtt_data()
 		echo "$1"
 	fi
 
+	return $rc
+}
+
+trim()
+{
+    local var="$*"
+    # remove leading whitespace characters
+    var="${var#"${var%%[![:space:]]*}"}"
+    # remove trailing whitespace characters
+    var="${var%"${var##*[![:space:]]}"}"   
+    printf '%s' "$var"
+}
+
+get_password()
+{
+	# $1 Message to display
+	# $2 Title
+	local tmp_input
+	local rc=0
+
+	if [ -z "$2" ]; then
+		tmp_input=$(whiptail --passwordbox "$1" 12 60 3>&1 1>&2 2>&3)
+	else
+		tmp_input=$(whiptail --passwordbox --title "$2" "$1" 12 60 3>&1 1>&2 2>&3)
+	fi
+	
+	rc=$?
+
+	if [ "$rc" -eq 0 ]; then
+		echo "$tmp_input"	# OK
+	fi
+	
 	return $rc
 }
 
@@ -2388,6 +2512,8 @@ mkdir -p "$tmppath"
 read_variables
 rc=$?
 
+db_backup_warning=0
+
 export NEWT_COLORS=''
 
 if [ "$rc" -eq 0 ]; then
@@ -2397,7 +2523,7 @@ if [ "$rc" -eq 0 ]; then
 	while true; do
 
 		if [ "$sql_dbtype" = "MySQL" ] || [ "$sql_dbtype" = "MariaDB" ]; then
-			db_on_server="$sql_dbtype on $SQL_Hostname"
+			db_on_server="$sql_dbtype/$SQL_Database on $SQL_Hostname"
 		else
 			db_on_server="$sql_dbtype"
 		fi
@@ -2410,7 +2536,7 @@ if [ "$rc" -eq 0 ]; then
 		else
 			mqtt_enabled=1
 		fi;
-
+		
 		# Set PVOutput status
 		if [ "$sql_dbtype" = "NoSQL" ]; then
 			pvo_enabled=-1	# PVO N/A
@@ -2419,6 +2545,13 @@ if [ "$rc" -eq 0 ]; then
 		else
 			pvo_enabled=1
 		fi
+		
+##		# When installing V3.8.0 or up, warn user about database upgrade
+##		if [ "$db_backup_warning" -eq 0 ] && [ "$sql_dbtype" != "NoSQL" ] && [ "$(vvalue $version_wanted)" -ge "$(vvalue '3.8.0')" ]; then
+##			db_backup_warning=1
+##			whiptail --msgbox --title "* * * WARNING! * * *" "Installing V$version_wanted requires an important database update.\nIt is highly recommended to take a backup of the database.\nOnce updated, there is no way back." 0 0
+##		fi
+
 
 		opt=$(whiptail \
 			--title "$appname" \
@@ -2465,7 +2598,8 @@ if [ "$rc" -eq 0 ]; then
 					2)	export NEWT_COLORS='root=white,red'
 						whiptail --msgbox "Installation Failed" 0 0
 						exit 2 ;;
-				  255)	exit $wt_esc
+				  255)	exit $wt_esc ;;
+                    *)  ;;
 				esac
 			fi
 		fi
