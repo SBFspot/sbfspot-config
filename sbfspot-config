@@ -2557,7 +2557,7 @@ if [ "$rc" -eq 0 ]; then
 			"5 Database         " "$db_on_server" \
 			"6 PVOutput         " "$(on_off_status "$pvo_enabled")" \
 			"7 MQTT             " "$(on_off_status "$mqtt_enabled")" \
-			"8 Advanced Options " "" \
+			"8 Advanced Options " "Inverter password and settings" \
 			"9 About            " "Information about sbfspot-config" \
 			3>&1 1>&2 2>&3)
 
