@@ -9,7 +9,7 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.2.0
+# sbfspot-config V1.2.1
 # (c) 2017-2021, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian/Raspberry Pi OS)
@@ -24,11 +24,16 @@
 # curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
 
 # Changes:
+# V1.2.1 (18-NOV-2021)
+#	- Fix vvalue() fails sometimes while converting to array
+#	- Removed trim root password mariadb
+#	- Updated link for LAT/LONG calculation
+#
 # V1.2.0 (11-MAR-2021)
 #	- Fix: #28 SBFspot and MariaDB/MySQL (DB Creation MariaDB)
 #	- Add: MariaDB port number (See SBFspot Issue #7)
-#   - Fix: #27 Can't define MQTT user and password
-#   - Fix: #31 '!' character in password SMA saved in config but not loaded
+#	- Fix: #27 Can't define MQTT user and password
+#	- Fix: #31 '!' character in password SMA saved in config but not loaded
 #
 # V1.1.2 (22-JUN-2020)
 #	- Fix: #21 New install with sbfspot-config fails to unavailable version 3.7.0
@@ -83,9 +88,7 @@
 # V1.0.0 (09-FEB-2018)
 #	- Initial version
 
-#set -uo pipefail
-
-readonly toolversion="1.2.0"
+readonly toolversion="1.2.1"
 readonly appname="SBFspot Configuration Tool V$toolversion"
 readonly appshortname="sbfspot-config"
 
@@ -464,9 +467,9 @@ cleanup()
 # 3*256*256 + 4*246 + 10 = 197642
 vvalue()
 {
-	local ver="$1"	# Version as string
-	
-	local parts=($(echo $ver | tr '.' ' '))
+	# $1 Version as string
+	local parts
+    IFS=' ' read -a parts <<< $(echo "$1" | tr '.' ' ')
 	local mul=1
 	local value=0
 	for (( p=${#parts[@]}-1; p>=0; p-- )); do
@@ -927,7 +930,6 @@ do_install()
 				local root_pw
                 root_pw=$(get_password "Root access is required to create database and user\n\nEnter root password for $dbtype on $SQL_Hostname")
                 rc=$?
-                root_pw=$(trim $root_pw)
                 if [ "$rc" -eq 0 ] && [ -n "$root_pw" ]; then
                     echo "Creating database '$SQL_Database'"
                     $dbtype -h $SQL_Hostname -P $SQL_Port -u root -p$root_pw < "$tmp_dir/CreateMySQLDB.sql" &>"$tmp_dir/sqldb.test" 
@@ -1101,8 +1103,7 @@ do_install()
 		echo "# e.g. Timezone=Europe/Brussels"
 		echo "Timezone=$Timezone"
 		echo ""
-		echo "# Position of pv-plant http://itouchmap.com/latlong.html"
-		echo "# Example for Ukkel, Belgium"
+		echo "# Position of pv-plant https://www.gps-coordinates.net/maps"
 		echo "Latitude=$Latitude"
 		echo "Longitude=$Longitude"
 		echo ""
@@ -1826,16 +1827,6 @@ get_mqtt_data()
 	return $rc
 }
 
-trim()
-{
-    local var="$*"
-    # remove leading whitespace characters
-    var="${var#"${var%%[![:space:]]*}"}"
-    # remove trailing whitespace characters
-    var="${var%"${var##*[![:space:]]}"}"   
-    printf '%s' "$var"
-}
-
 get_password()
 {
 	# $1 Message to display
@@ -1984,7 +1975,7 @@ do_location()
 		elif [ $rc -eq 0 ]; then # Select/Enter
 			case "$opt" in
 				1\ *)	whiptail --msgbox "Timezone can't be changed here.\nRun raspi-config to perform this action." 0 0 ;;
-				2\ *)	tmp_Location=$(get_input "Refer to http://itouchmap.com/latlong.html\nto get the exact location\n\nEnter latitude/longitude for your location" "$tmp_Location" "Location")
+				2\ *)	tmp_Location=$(get_input "Refer to https://www.gps-coordinates.net/maps\nto get the exact location\n\nEnter latitude/longitude for your location" "$tmp_Location" "Location")
 						rc=$?
 						if [ $rc -eq $wt_esc ]; then # ESC
 							tmp_Location="$Latitude/$Longitude"
