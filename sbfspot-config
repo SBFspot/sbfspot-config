@@ -9,8 +9,8 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.2.1
-# (c) 2017-2021, SBF
+# sbfspot-config V1.3.0
+# (c) 2017-2022, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian/Raspberry Pi OS)
 #
@@ -23,7 +23,15 @@
 # To install a specific SBFspot version (e.g. 3.5.0):
 # curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
 
+readonly toolversion="1.3.0"
+
 # Changes:
+# V1.3.0 (25-AUG-2022)
+#   - Fix: #23 Can't enter multiple SystemID's for PVOutput
+#   - Fix: #32 SBFSpot Upgrade with Multiple Inverters
+#   - Fix: #46 (and related #47 #50 #51) Error with mismatched SIDS and S/N (SBFspot V3.9.5)
+#	- Add: arm64 support (#52 ISSUE installing after firmware upgrade of Raspberry - Debian 11 - Bullseye 64bit)
+#
 # V1.2.1 (18-NOV-2021)
 #	- Fix vvalue() fails sometimes while converting to array
 #	- Removed trim root password mariadb
@@ -88,7 +96,6 @@
 # V1.0.0 (09-FEB-2018)
 #	- Initial version
 
-readonly toolversion="1.2.1"
 readonly appname="SBFspot Configuration Tool V$toolversion"
 readonly appshortname="sbfspot-config"
 
@@ -385,7 +392,9 @@ read_variables()
 		# Read .cfg files
 		echo "Reading settings from $cfg"
 		local tempcfg="$tmppath/cfg.tmp"
-		grep -Pv "^(MQTT_|#)" "$cfg" | grep -Po "^[aA-zZ_]*=.*">"$tempcfg"  # Fix #31
+        # Space character inside DateTimeFormat=%d/%m/%Y %H:%M:%S causes error "/var/tmp/sbfspot.3/cfg.tmp: line 10: fg: no job control"
+        # TODO: quote all keyvalues to fix
+		grep -Pv "^(MQTT_|DateTimeFormat|#)" "$cfg" | grep -Po "^[aA-zZ_]*=.*">"$tempcfg"  # Fix #31
 		
 		# Surround MQTT_ values with '' to allow special characters like {,"}
 		while IFS='=' read -ra keyvalue; do
@@ -394,13 +403,13 @@ read_variables()
 			fi;
 		done <<< $(grep -Po "^MQTT_[aA-zZ_]*=[\" {}aA-zZ0-9/%.,;:-]*" "$cfg")
 
-		source "$tempcfg"
+        source "$tempcfg"
 
 		local cfg2
 		cfg2="$(dirname "$cfg")/SBFspotUpload.cfg"
 		if [ -f "$cfg2" ]; then
 			echo "Reading settings from $cfg2"
-			grep -Po "^[aA-zZ_]*=[aA-zZ0-9/%.:-]*" "$cfg2">"$tempcfg"
+			grep -Po "^[aA-zZ_]*=[aA-zZ0-9/%.:\-\,]*" "$cfg2">"$tempcfg"
 			source "$tempcfg"
 		fi
 		DateTimeFormat="$DateFormat $TimeFormat"
@@ -442,7 +451,7 @@ read_variables()
 			mqtt_msgformat='custom'
 		fi
 	fi
-	
+
 	return 0 # OK
 }
 
@@ -511,14 +520,14 @@ get_releases()
 	if [ "${url: -1}" = "/" ]; then
 		url="${url: : -1}"
 	fi
-
+    
 	# download releases page from Github
 	wget -qNP "$tmppath" "$url"
 	
 	if [ -f "$tmppath/releases" ]; then
 		local rlist
 		# Get available versions for codename (stretch/buster/...)
-		rlist=($(grep -Po "(\d+\.)(\d+\.)(\d)/.*\-$lsb_codename\.tar\.gz" "$tmppath/releases"))
+		rlist=($(grep -Po "(\d+\.)(\d+\.)(\d)/sbfspot\-.*\-$arch\-.*\-$lsb_codename\.tar\.gz" "$tmppath/releases"))
 		
 		local min_version_value
 		min_version_value=$(vvalue $minimum_sbfspot_version)
@@ -850,8 +859,8 @@ do_install()
 	mkdir -p "$tmp_dir"
 	cd "$tmp_dir"
 
-	local targz="sbfspot-$dbtype-arm-linux-$lsb_codename.tar.gz"
-	echo "Downloading $url_releases/download/V$install_release/$targz"
+	local targz="sbfspot-$dbtype-$arch-linux-$lsb_codename.tar.gz"
+	echo "Downloading $targz"
 	wget -o"$tmp_dir/wget.txt" -NP "$tmp_dir" "$url_releases/download/V$install_release/$targz"
 	tar --overwrite -xvf "$targz">/dev/null
 	# Check return code - 0 is OK
@@ -1035,8 +1044,9 @@ do_install()
 		echo "#                                                                               "
 		echo "#    SMA and Speedwire are registered trademarks of SMA Solar Technology AG     "
 		echo "################################################################################"
-		echo ""
+		echo "#"
 		echo "# $sbfspotcfg - Created $(date) with $appshortname V$toolversion"
+		echo "#"
 		echo ""
 
 		# Configure Bluetooth
@@ -1067,8 +1077,8 @@ do_install()
 		# Configure Speedwire
 		if [ "$inv_connectiontype" = "Speedwire" ]; then
 			echo "# SMA Inverter's Speedwire IP address"
-			echo "# If IP_Address is not set or is 0.0.0.0 SBFspot will try to detect the speedwire inverter by broadcast"
-			echo "# If IP_Address is set to a valid IP, SBFspot will try to connect directly to that IP without broadcast detection"
+			echo "# If IP_Address is set to 0.0.0.0 SBFspot will auto-detect connected inverters"
+			echo "# If IP_Address is set one or more valid IP's, SBFspot will connect directly to these IP's"
 			echo "# Multiple IP addresses can be provided (comma separated)"
 			echo "IP_Address=$IP_Address"
 			echo ""
@@ -1317,10 +1327,16 @@ do_install()
 	# Dry run SBFspot for the first time
 	#
 	
-	echo "Running SBFspot..."
 	local firstrun
-	firstrun=$("$dir_program"/SBFspot -v -ad0 -am0 -ae0 -sp0 -nocsv -nosql -finq -cfg$dir_config/$sbfspotcfg)
-	#firstrun=$(<"$userhome/firstrun_multigate") # For testing purpose - don't have multigate
+
+    if [ -f "$userhome/firstrun" ]; then
+        echo "Using firstrun data from local file..."
+        firstrun=$(<"$userhome/firstrun") # For testing purpose - don't have multigate
+    else
+        echo "Running SBFspot..."
+        firstrun=$("$dir_program"/SBFspot -v -ad0 -am0 -ae0 -sp0 -nocsv -nosql -finq -cfg$dir_config/$sbfspotcfg)
+    fi
+    
 	rc=$?
 	
 	if [ "$rc" -ne 0 ]; then
@@ -1379,7 +1395,10 @@ do_install()
 	if [ "$pvo_enabled" -eq 1 ]; then
 		echo "PVO enabled, configuring upload daemon..."
 		
-		devserials=$(echo "$firstrun"|awk '/^Serial number:/ { print $2 }' FS=': *')
+		#devserials=$(echo "$firstrun"|awk '/^Serial number:/ { print $2 }' FS=': *')
+        # Fix #46
+        #devserials=$(echo "$firstrun"|awk '/SN:/ { print $3 }' FS=': *'|sort -u;)
+        devserials=$(echo "$firstrun"|tr -d '\r'|awk '/SN:/ { print $3 }' FS=': '|sort -u;)
 		echo "Device Serial(s): $devserials"
 
 		local crc_src
@@ -1455,7 +1474,6 @@ do_install()
 			whiptail --msgbox "SBFspotUpload installation failed:\nProblem with PVOutput API key or SystemID" 0 0
 			return 1 # show PVO config menu
 		fi
-
 		if echo "$PVoutput_SID" | grep -q ":"; then
 			pvo_serial_sid="$PVoutput_SID"
 			echo "Serial Numbers already mapped to PVOutput System ID's"
@@ -1502,7 +1520,6 @@ do_install()
 			echo "################################################################################"
 			echo "#"
 			echo "# $sbfspotuploadcfg - Created $(date) with $appshortname V$toolversion"
-			echo "# For detailed configuration info, refer to SBFspotUpload.default.cfg"
 			echo "#"
 			echo ""
 
@@ -1653,7 +1670,7 @@ do_pvo_config()
 			return
 		elif [ $rc -eq 0 ]; then # Select/Enter
 			case "$opt" in
-				1\ *) tmp_PVoutput_SID=$(get_inputx "Enter PVOutput SystemID's (comma separated)" "$tmp_PVoutput_SID" "" "^($|[0-9]+|[0-9]+(,[0-9]+)*)$" "Invalid") ;;
+				1\ *) tmp_PVoutput_SID=$(get_inputx "Enter PVOutput SystemID's (comma separated)" "$tmp_PVoutput_SID" "" "^([0-9]+(,[0-9]+)*|[0-9]+:[0-9]+(,[0-9]+:[0-9]+)*)$" "Invalid") ;;
 				2\ *) tmp_PVoutput_Key=$(get_inputx "Enter 40-character API Key" "$tmp_PVoutput_Key" "" "^([0-9a-f]{40})?$" "Invalid") ;;
 			esac
 		elif [ $rc -eq 1 ]; then # OK
@@ -2401,8 +2418,9 @@ do_preflightcheck()
 	fi
 
 	# Check if running Raspbian
-	if [ $(lsb_release -si) != "Raspbian" ]; then
-		echo "Error: Not running Raspbian."
+    # Fix: On ARM64, lsb_release -si returns 'Debian' (instead of 'Raspbian')
+    if [[ "Raspbian Debian" != *$(lsb_release -si)* ]]; then
+		echo "Error: Not running Raspbian nor Raspberry Pi OS."
 		exit 1
 	fi
 
@@ -2449,9 +2467,12 @@ echo "$appname"
 do_preflightcheck
 
 # architecture
-# armhf=raspberry pi
+# armhf: 32-bit OS
+# arm64: 64-bit OS
 architecture=$(dpkg --print-architecture)
 echo "architecture=$architecture"
+# Convert 'armhf' to 'arm' for backward compatibility
+arch="${architecture/hf/}"
 
 lsb_id=$(lsb_release -si)
 lsb_desc=$(lsb_release -sd)
