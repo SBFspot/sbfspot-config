@@ -9,7 +9,7 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.3.0
+# sbfspot-config V1.3.1
 # (c) 2017-2022, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian/Raspberry Pi OS)
@@ -23,14 +23,17 @@
 # To install a specific SBFspot version (e.g. 3.5.0):
 # curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
 
-readonly toolversion="1.3.0"
+readonly toolversion="1.3.1"
 
 # Changes:
+# V1.3.1 (07-SEP-2022)
+#   - Fix: SBFspot #559 SBFspotUploadDaemon log to stdout?
+#
 # V1.3.0 (25-AUG-2022)
 #   - Fix: #23 Can't enter multiple SystemID's for PVOutput
 #   - Fix: #32 SBFSpot Upgrade with Multiple Inverters
 #   - Fix: #46 (and related #47 #50 #51) Error with mismatched SIDS and S/N (SBFspot V3.9.5)
-#	- Add: arm64 support (#52 ISSUE installing after firmware upgrade of Raspberry - Debian 11 - Bullseye 64bit)
+#   - Add: arm64 support (#52 ISSUE installing after firmware upgrade of Raspberry - Debian 11 - Bullseye 64bit)
 #
 # V1.2.1 (18-NOV-2021)
 #	- Fix vvalue() fails sometimes while converting to array
@@ -146,7 +149,8 @@ create_defaults()
 {
 	# General Variables
 	dir_smadata="$userhome/smadata"
-	dir_logs="$logpath"
+	dir_logs="$logpath" # logfile location for SBFspot
+    LogDir="$logpath"   # logfile location for upload daemon
 	dir_program="$prgpath"
 	dir_config="$cfgpath"
 	inv_connectiontype="Bluetooth"
@@ -263,6 +267,7 @@ save_defaults()
 		echo "fileversion=$toolversion"
 		
 		echo "dir_logs=$dir_logs"
+        echo "LogDir=$LogDir"
 		echo "dir_program=$dir_program"
 		echo "dir_config=$dir_config"
 		echo "sql_dbtype=$sql_dbtype"
@@ -418,9 +423,9 @@ read_variables()
 		dir_smadata="$userhome/smadata"
 		dir_config="$(dirname "$cfg")"
 
-		if [ -n "${LogDir+x}" ]; then
-			dir_logs="$LogDir"
-		fi
+		#if [ -n "${LogDir+x}" ]; then
+		#	dir_logs="$LogDir"
+		#fi
 
 		if [ -z ${inv_connectiontype+x} ] || [ "$BTAddress" != "00:00:00:00:00:00" ]; then
 			inv_connectiontype="Bluetooth"
@@ -1526,7 +1531,12 @@ do_install()
 			echo "################################"
 			echo "### Log Settings             ###"
 			echo "################################"
-			echo "LogDir=$dir_logs"
+            # As from V3.9.6 log daemon messages to stdout (systemd)
+            if [ "$(vvalue $version_wanted)" -lt "$(vvalue '3.9.6')" ]; then
+                echo "LogDir=$dir_logs"
+            else
+                echo "#LogDir=(stdout)"
+            fi
 			echo "#LogLevel=debug|info|warning|error (default info)"
 			echo "LogLevel=info"
 			echo ""
