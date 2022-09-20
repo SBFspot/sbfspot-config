@@ -9,7 +9,7 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.3.1
+# sbfspot-config V1.3.2
 # (c) 2017-2022, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian/Raspberry Pi OS)
@@ -23,9 +23,12 @@
 # To install a specific SBFspot version (e.g. 3.5.0):
 # curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
 
-readonly toolversion="1.3.1"
+readonly toolversion="1.3.2"
 
 # Changes:
+# V1.3.2 (20-SEP-2022)
+#   - Chg: Set highest installable version (Prepare for SBFspot V4)
+#
 # V1.3.1 (07-SEP-2022)
 #   - Fix: SBFspot #559 SBFspotUploadDaemon log to stdout?
 #
@@ -90,7 +93,7 @@ readonly toolversion="1.3.1"
 #   - Fix: Case sensitive table names (MySQL/MariaDB)
 #
 # V1.0.8 (01-OCT-2018)
-#   - Fix: #4
+#   - Fix: #1 ERROR 1146 : Table 'sbfspot.config' doesn't exist
 #   - Precompiled SBFspot does not run on Jessie
 #
 # V1.0.7 (27-SEP-2018)
@@ -102,7 +105,8 @@ readonly toolversion="1.3.1"
 readonly appname="SBFspot Configuration Tool V$toolversion"
 readonly appshortname="sbfspot-config"
 
-readonly minimum_sbfspot_version="3.5.0"
+readonly minimum_sbfspot_version="3.5.0"    # Inclusive
+readonly maximum_sbfspot_version="4.0.0"    # Exclusive
 
 # default SBFspot parameters used in cron jobs
 readonly p_daydata="-v -ad1 -am0 -ae1"
@@ -534,13 +538,10 @@ get_releases()
         # Get available versions for codename (stretch/buster/...)
         rlist=($(grep -Po "(\d+\.)(\d+\.)(\d)/sbfspot\-.*\-$arch\-.*\-$lsb_codename\.tar\.gz" "$tmppath/releases"))
 
-        local min_version_value
-        min_version_value=$(vvalue $minimum_sbfspot_version)
-
         for (( i=0; i<${#rlist[@]}; i++ )); do
             local version=$(echo "${rlist[$i]}"|awk '/$/ { print $1 }' FS='/')
-            local version_value=$(vvalue $version)
-            if [ "$version_value" -ge "$min_version_value" ]; then
+            local vval=$(vvalue $version)
+            if [ "$vval" -ge "$(vvalue $minimum_sbfspot_version)" ] && [ "$vval" -lt "$(vvalue $maximum_sbfspot_version)" ]; then
                 arr_releases+=("$version")
             fi
         done
