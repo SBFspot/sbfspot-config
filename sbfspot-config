@@ -9,8 +9,8 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.3.2
-# (c) 2017-2022, SBF
+# sbfspot-config V1.3.3
+# (c) 2017-2023, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian/Raspberry Pi OS)
 #
@@ -23,9 +23,12 @@
 # To install a specific SBFspot version (e.g. 3.5.0):
 # curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
 
-readonly toolversion="1.3.2"
+readonly toolversion="1.3.3"
 
 # Changes:
+# V1.3.3 (21-JAN-2023)
+#   - Fix: #55 Previous versions not available for download
+#
 # V1.3.2 (20-SEP-2022)
 #   - Chg: Set highest installable version (Prepare for SBFspot V4)
 #
@@ -124,7 +127,7 @@ readonly defaultsfile="$tmppath/sbfspot.defaults"
 
 # No ending "/"
 readonly url_mylocation="https://raw.githubusercontent.com/sbfspot/sbfspot-config/master"
-readonly url_releases="https://github.com/sbfspot/sbfspot/releases"
+readonly url_releases="https://api.github.com/repos/sbfspot/sbfspot/releases"
 
 # some whiptail constants
 readonly wt_yes=0
