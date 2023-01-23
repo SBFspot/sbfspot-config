@@ -27,7 +27,7 @@ readonly toolversion="1.3.4"
 
 # Changes:
 # V1.3.4 (23-JAN-2023)
-#   - Fix: #56 Installation aborted: Unable to untar
+#   - Fix: #57 Installation aborted: Unable to untar
 #
 # V1.3.3 (21-JAN-2023)
 #   - Fix: #55 Previous versions not available for download
