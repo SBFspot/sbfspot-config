@@ -9,7 +9,7 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.3.3
+# sbfspot-config V1.3.4
 # (c) 2017-2023, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian/Raspberry Pi OS)
@@ -23,9 +23,12 @@
 # To install a specific SBFspot version (e.g. 3.5.0):
 # curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
 
-readonly toolversion="1.3.3"
+readonly toolversion="1.3.4"
 
 # Changes:
+# V1.3.4 (23-JAN-2023)
+#   - Fix: #56 Installation aborted: Unable to untar
+#
 # V1.3.3 (21-JAN-2023)
 #   - Fix: #55 Previous versions not available for download
 #
@@ -105,6 +108,8 @@ readonly toolversion="1.3.3"
 # V1.0.0 (09-FEB-2018)
 #   - Initial version
 
+#set -x
+
 readonly appname="SBFspot Configuration Tool V$toolversion"
 readonly appshortname="sbfspot-config"
 
@@ -128,6 +133,7 @@ readonly defaultsfile="$tmppath/sbfspot.defaults"
 # No ending "/"
 readonly url_mylocation="https://raw.githubusercontent.com/sbfspot/sbfspot-config/master"
 readonly url_releases="https://api.github.com/repos/sbfspot/sbfspot/releases"
+readonly url_download="https://github.com/sbfspot/sbfspot/releases/download"
 
 # some whiptail constants
 readonly wt_yes=0
@@ -539,8 +545,10 @@ get_releases()
     if [ -f "$tmppath/releases" ]; then
         local rlist
         # Get available versions for codename (stretch/buster/...)
+        # TODO: To query JSON file, install jq
+        # jq -r '.[].assets[] | select(.browser_download_url | contains("-$arch-linux-$lsb_codename")) | .browser_download_url' releases
         rlist=($(grep -Po "(\d+\.)(\d+\.)(\d)/sbfspot\-.*\-$arch\-.*\-$lsb_codename\.tar\.gz" "$tmppath/releases"))
-
+        
         for (( i=0; i<${#rlist[@]}; i++ )); do
             local version=$(echo "${rlist[$i]}"|awk '/$/ { print $1 }' FS='/')
             local vval=$(vvalue $version)
@@ -870,7 +878,7 @@ do_install()
 
     local targz="sbfspot-$dbtype-$arch-linux-$lsb_codename.tar.gz"
     echo "Downloading $targz"
-    wget -o"$tmp_dir/wget.txt" -NP "$tmp_dir" "$url_releases/download/V$install_release/$targz"
+    wget -o"$tmp_dir/wget.txt" -NP "$tmp_dir" "$url_download/V$install_release/$targz"
     tar --overwrite -xvf "$targz">/dev/null
     # Check return code - 0 is OK
     if [ "$?" -ne 0 ]; then
@@ -933,7 +941,6 @@ do_install()
     fi
 
     # Setup MySQL/MariaDB
-    set -x
     if [ "$dbtype" = "mariadb" ]; then
         install_pkg "$dbtype-client"
 
