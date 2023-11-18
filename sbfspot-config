@@ -9,7 +9,7 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.3.4
+# sbfspot-config V1.3.5
 # (c) 2017-2023, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian/Raspberry Pi OS)
@@ -18,14 +18,19 @@
 #
 # Download/run sbfspot-config as root:
 # To install the latest SBFspot version:
-# curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash
+# sudo bash -c "$(curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config)"
 #
 # To install a specific SBFspot version (e.g. 3.5.0):
-# curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config | sudo bash -s 3.5.0
+# sudo bash -c "$(curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config)" -s 3.5.0
 
-readonly toolversion="1.3.4"
+readonly toolversion="1.3.5"
 
 # Changes:
+# V1.3.5 (17-NOV-2023)
+#   - Fix: #34 Passwords for mqtt broker credentials containing ')' do not work
+#   - Fix: #65 RE-using an existing config breaks MQTT upload
+#   - Check for supported OS
+#
 # V1.3.4 (23-JAN-2023)
 #   - Fix: #57 Installation aborted: Unable to untar
 #
@@ -135,6 +140,8 @@ readonly url_mylocation="https://raw.githubusercontent.com/sbfspot/sbfspot-confi
 readonly url_releases="https://api.github.com/repos/sbfspot/sbfspot/releases"
 readonly url_download="https://github.com/sbfspot/sbfspot/releases/download"
 
+readonly url_install_wiki="https://github.com/SBFspot/SBFspot/wiki/Installation-Linux-SQLite"
+
 # some whiptail constants
 readonly wt_yes=0
 readonly wt_no=1
@@ -231,6 +238,9 @@ create_defaults()
     MQTT_Data='Timestamp,SunRise,SunSet,InvSerial,InvName,InvTime,InvStatus,InvTemperature,InvGridRelay,EToday,ETotal,PACTot,UDC1,UDC2,IDC1,IDC2,PDC1,PDC2'
     MQTT_Username=''
     MQTT_Password=''
+    # Mosquitto_pub CLI Arguments for username/password
+    MQTT_Arg_User='-u'
+    MQTT_Arg_PW='-P'
 
     if [ "$mqtt_msgformat" = "json" ]; then
         MQTT_ItemDelimiter="$mqtt_json_itemdelimiter"
@@ -419,9 +429,20 @@ read_variables()
             if [ -n "${keyvalue[0]}" ]; then
                 echo "${keyvalue[0]}='${keyvalue[1]}'">>"$tempcfg"
             fi;
-        done <<< $(grep -Po "^MQTT_[aA-zZ_]*=[\" {}aA-zZ0-9/%.,;:-]*" "$cfg")
+        done <<< $(grep -Po "^MQTT_[aA-zZ_]*=.*" "$cfg")
 
         source "$tempcfg"
+
+        # Extract username/password from MQTT command line
+        MQTT_Username=$(awk -v arg=".*$MQTT_Arg_User " '{ gsub(arg, ""); gsub(" .*", ""); print }' <<< "$MQTT_PublisherArgs")
+        MQTT_Password=$(awk -v arg=".*$MQTT_Arg_PW " '{ gsub(arg, ""); gsub(" .*", ""); print }' <<< "$MQTT_PublisherArgs")
+        
+        # Remove username/password from MQTT command line
+        # This will be reassembled later on
+        MQTT_PublisherArgs=${MQTT_PublisherArgs/$MQTT_Arg_User $MQTT_Username }
+        MQTT_PublisherArgs=${MQTT_PublisherArgs/$MQTT_Arg_User $MQTT_Username}
+        MQTT_PublisherArgs=${MQTT_PublisherArgs/$MQTT_Arg_PW $MQTT_Password }
+        MQTT_PublisherArgs=${MQTT_PublisherArgs/$MQTT_Arg_PW $MQTT_Password}
 
         local cfg2
         cfg2="$(dirname "$cfg")/SBFspotUpload.cfg"
@@ -1265,7 +1286,7 @@ do_install()
             echo "# JSON: MQTT_PublisherArgs=-h {host} -t {topic} -m \"{{message}}\""
             echo "# TEXT: MQTT_PublisherArgs=-h {host} -t {topic} -m \"{message}\""
             echo "# XML : MQTT_PublisherArgs=-h {host} -t {topic} -m \"<mqtt_message>{message}</mqtt_message>\""
-            [ -z "$MQTT_Username" ] && echo "MQTT_PublisherArgs=$MQTT_PublisherArgs" || echo "MQTT_PublisherArgs=-u $MQTT_Username -P $MQTT_Password $MQTT_PublisherArgs"
+            [ -z "$MQTT_Username" ] && echo "MQTT_PublisherArgs=$MQTT_PublisherArgs" || echo "MQTT_PublisherArgs=$MQTT_Arg_User $MQTT_Username $MQTT_Arg_PW $MQTT_Password $MQTT_PublisherArgs"
             echo ""
             echo "# Data to be published (comma delimited)"
             echo "MQTT_Data=$MQTT_Data"
@@ -2423,6 +2444,10 @@ is_installed()
     fi
 }
 
+# do_preflightcheck()
+# uses global variables:
+#   lsb_id, lsb_codename, lsb_desc
+#   url_install_wiki
 do_preflightcheck()
 {
     # Check if running as root
@@ -2435,15 +2460,31 @@ do_preflightcheck()
     if is_pi; then
         echo "Running on $(tr -d '\0' </proc/device-tree/model)"
     else
-        echo "Error: Not running on Raspberry Pi."
+        echo "Not running on Raspberry Pi."
+        echo "Install SBFspot manually following $url_install_wiki"
         exit 1
     fi
 
     # Check if running Raspbian
     # Fix: On ARM64, lsb_release -si returns 'Debian' (instead of 'Raspbian')
-    if [[ "Raspbian Debian" != *$(lsb_release -si)* ]]; then
+    local re_id="\<$lsb_id\>"
+    if [[ ! "Raspbian Debian" =~ $re_id ]]; then
         echo "Error: Not running Raspbian nor Raspberry Pi OS."
         exit 1
+    fi
+
+    # Check for supported OS
+    local re_codename="\<$lsb_codename\>"
+    if [[ "wheezy jessie stretch" =~ $re_codename ]]; then
+        echo "Obsolete OS detected: $lsb_desc"
+        echo "Upgrade OS or install SBFspot manually following $url_install_wiki"
+        exit 1
+    else
+        if [[ ! "buster bullseye bookworm" =~ $re_codename ]]; then
+            echo "Unknown OS detected: $lsb_desc"
+            echo "Install SBFspot manually following $url_install_wiki"
+            exit 1
+        fi
     fi
 
     # Check if required files exist
@@ -2469,13 +2510,6 @@ do_preinstallcheck()
         return 1
     fi
 
-    ## TODO: Ping IP
-    #if [ "$inv_connectiontype" = "Speedwire" ] ]; then
-    #   printf "\nSpeedwire is not configured correctly!\n"
-    #   whiptail --msgbox "Speedwire is not configured correctly!" 0 0
-    #   return 1
-    #fi
-
     # TODO: Add other checks
 
     printf "Done\n"
@@ -2486,6 +2520,11 @@ do_preinstallcheck()
 # Main starts here
 echo "$appname"
 
+lsb_id=$(lsb_release -si)
+lsb_desc=$(lsb_release -sd)
+lsb_version=$(lsb_release -sr)
+lsb_codename=$(lsb_release -sc)
+
 do_preflightcheck
 
 # architecture
@@ -2495,11 +2534,6 @@ architecture=$(dpkg --print-architecture)
 echo "architecture=$architecture"
 # Convert 'armhf' to 'arm' for backward compatibility
 arch="${architecture/hf/}"
-
-lsb_id=$(lsb_release -si)
-lsb_desc=$(lsb_release -sd)
-lsb_release=$(lsb_release -sr)
-lsb_codename=$(lsb_release -sc)
 
 echo "$lsb_desc"
 
