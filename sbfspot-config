@@ -9,8 +9,8 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.3.5
-# (c) 2017-2023, SBF
+# sbfspot-config V1.3.6
+# (c) 2017-2024, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian/Raspberry Pi OS)
 #
@@ -23,9 +23,13 @@
 # To install a specific SBFspot version (e.g. 3.5.0):
 # sudo bash -c "$(curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config)" -s 3.5.0
 
-readonly toolversion="1.3.5"
+readonly toolversion="1.3.6"
 
 # Changes:
+# V1.3.6 (16-JUN-2024)
+#   - Fix: #41 MariaDB password ending with "!" is not saved
+#   - Fix: #75 After update to 3.9.10, version remains 3.9.8
+#
 # V1.3.5 (17-NOV-2023)
 #   - Fix: #34 Passwords for mqtt broker credentials containing ')' do not work
 #   - Fix: #65 RE-using an existing config breaks MQTT upload
@@ -325,8 +329,8 @@ save_defaults()
         echo "SQL_Database=$SQL_Database"
         echo "SQL_Hostname=$SQL_Hostname"
         echo "SQL_Port=$SQL_Port"
-        echo "SQL_Username=$SQL_Username"
-        echo "SQL_Password=$SQL_Password"
+        echo "SQL_Username='$SQL_Username'"
+        echo "SQL_Password='$SQL_Password'"
 
         echo "CalculateMissingSpotValues=$CalculateMissingSpotValues"
 
@@ -568,7 +572,7 @@ get_releases()
         # Get available versions for codename (stretch/buster/...)
         # TODO: To query JSON file, install jq
         # jq -r '.[].assets[] | select(.browser_download_url | contains("-$arch-linux-$lsb_codename")) | .browser_download_url' releases
-        rlist=($(grep -Po "(\d+\.)(\d+\.)(\d)/sbfspot\-.*\-$arch\-.*\-$lsb_codename\.tar\.gz" "$tmppath/releases"))
+        rlist=($(grep -Po "(\d+\.)(\d+\.)(\d+)/sbfspot\-.*\-$arch\-.*\-$lsb_codename\.tar\.gz" "$tmppath/releases"))
         
         for (( i=0; i<${#rlist[@]}; i++ )); do
             local version=$(echo "${rlist[$i]}"|awk '/$/ { print $1 }' FS='/')
