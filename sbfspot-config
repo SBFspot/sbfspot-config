@@ -9,7 +9,7 @@
 #                          |_|                                         |___/ 
 #
 #
-# sbfspot-config V1.3.6
+# sbfspot-config V1.3.7
 # (c) 2017-2024, SBF
 # This tool provides a straight-forward way of doing complete installation
 # and initial configuration of SBFspot/SBFspotUpload on the Raspberry Pi (Raspbian/Raspberry Pi OS)
@@ -23,9 +23,12 @@
 # To install a specific SBFspot version (e.g. 3.5.0):
 # sudo bash -c "$(curl -s https://raw.githubusercontent.com/sbfspot/sbfspot-config/master/sbfspot-config)" -s 3.5.0
 
-readonly toolversion="1.3.6"
+readonly toolversion="1.3.7"
 
 # Changes:
+# V1.3.7 (20-JUN-2024)
+#   - Fix: #2 Support for changing Timezone
+#
 # V1.3.6 (16-JUN-2024)
 #   - Fix: #41 MariaDB password ending with "!" is not saved
 #   - Fix: #75 After update to 3.9.10, version remains 3.9.8
@@ -199,7 +202,7 @@ create_defaults()
     CSV_Spot_WebboxHeader="0"
 
     Timezone="$(</etc/timezone)"
-    wget -o"$tmp_dir/wget.txt" -NP "$tmppath" "$url_mylocation/tzlatlon"
+    get_file_tzlatlon
     local latlon
     read -r -a latlon <<< "$(grep "$Timezone" "$tmppath/tzlatlon")"
     Latitude=${latlon[1]}
@@ -2013,9 +2016,53 @@ get_number()
     done
 }
 
+get_file_tzlatlon()
+{
+    if [ ! -f "$tmppath/tzlatlon" ]; then
+        wget -o "$tmp_dir/wget.txt" -NP "$tmppath" "$url_mylocation/tzlatlon"
+    fi
+}
+
+is_valid_timezone()
+{
+    get_file_tzlatlon
+    
+    if grep -Pq "^$1\t" "$tmppath/tzlatlon"; then
+        return 0    # OK
+    else
+        return 1    # Invalid
+    fi
+}
+
+get_timezone()
+{
+    local tz="$1"
+    declare -n retval=$2   # return value (string)
+    local rc=0
+
+    while true; do
+        tz=$(get_input "Enter a valid timezone" "$tz" "Timezone")
+        
+        rc=$?
+        
+        if [ $rc -eq $wt_esc ]; then
+            retval="$1"
+            return
+        elif [ $rc -eq 0 ]; then # OK
+            if is_valid_timezone "$tz"; then
+                retval="$tz"
+                return
+            else
+                whiptail --msgbox "'$tz' is not a valid timezone\nRefer to 'tzlatlon' file for valid timezone" 0 0
+            fi
+        fi
+    done
+}
+
 do_location()
 {
     local rc=0
+    local tmp_Timezone="$Timezone"
     local tmp_Location="$Latitude/$Longitude"
     local tmp_Locale="$Locale"
     local tmp_DecimalPoint="$DecimalPoint"
@@ -2026,7 +2073,7 @@ do_location()
             --menu "" 0 0 0 \
             --cancel-button "OK" \
             --ok-button "Select" \
-            "1 Timezone       : " "$Timezone" \
+            "1 Timezone       : " "$tmp_Timezone" \
             "2 Location       : " "$tmp_Location" \
             "3 Locale         : " "$tmp_Locale" \
             "4 Decimal Symbol : " "$tmp_DecimalPoint" \
@@ -2038,7 +2085,12 @@ do_location()
             return
         elif [ $rc -eq 0 ]; then # Select/Enter
             case "$opt" in
-                1\ *)   whiptail --msgbox "Timezone can't be changed here.\nRun raspi-config to perform this action." 0 0 ;;
+                1\ *)   get_timezone "$tmp_Timezone" tmp_Timezone
+                        # Update location
+                        local latlon
+                        read -r -a latlon <<< "$(grep -P "$tmp_Timezone" "$tmppath/tzlatlon")"
+                        tmp_Location="${latlon[1]}/${latlon[2]}"
+                        ;;
                 2\ *)   tmp_Location=$(get_input "Refer to https://www.gps-coordinates.net/maps\nto get the exact location\n\nEnter latitude/longitude for your location" "$tmp_Location" "Location")
                         rc=$?
                         if [ $rc -eq $wt_esc ]; then # ESC
@@ -2056,10 +2108,11 @@ do_location()
                 4\ *) tmp_DecimalPoint=$(get_option $'comma\tcomma\ndot\tdot' "$tmp_DecimalPoint" "Decimal Symbol" "" "radio" --notags) ;;
             esac
         elif [ $rc -eq 1 ]; then # OK
+            Timezone="$tmp_Timezone"
             local IFS=/
             read Latitude Longitude <<< $tmp_Location
-            Locale="$Locale"
-            DecimalPoint="$DecimalPoint"
+            Locale="$tmp_Locale"
+            DecimalPoint="$tmp_DecimalPoint"
             cfg_dirty=1
             return
         fi
@@ -2504,13 +2557,23 @@ do_preflightcheck()
     cleanup
 }
 
+print_msg()
+{
+    printf "\n$1\n"
+    whiptail --msgbox "$1" 0 0
+}
+
 do_preinstallcheck()
 {
     printf "Performing some checks before installation... "
 
     if [ "$inv_connectiontype" = "Bluetooth" ] && [ "$BTAddress" = "00:00:00:00:00:00" ]; then
-        printf "\nBluetooth is not configured correctly!\n"
-        whiptail --msgbox "Bluetooth is not configured correctly!" 0 0
+        print_msg "Bluetooth is not configured correctly!"
+        return 1
+    fi
+    
+    if ! is_valid_timezone "$Timezone"; then
+        print_msg "'$Timezone' is not a valid timezone\nRefer to 'tzlatlon' file for valid timezone"
         return 1
     fi
 
